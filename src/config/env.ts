@@ -1,9 +1,11 @@
 import "dotenv/config";
 
-function required(name: string, fallback?: string): string {
-  const value = process.env[name] ?? fallback;
-  if (value === undefined) {
-    throw new Error(`Missing required environment variable: ${name}`);
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `Missing required environment variable: ${name}. Copy .env.example to .env and fill it in.`,
+    );
   }
   return value;
 }
@@ -16,11 +18,11 @@ export const env = {
     .map((origin) => origin.trim())
     .filter(Boolean),
   isProduction: process.env.NODE_ENV === "production",
-};
 
-/** Call once at startup for anything that must exist before the server accepts traffic in production. */
-export function assertProductionEnv() {
-  if (!env.isProduction) return;
-  required("DATABASE_URL");
-  required("JWT_SECRET");
-}
+  // Stage 1 — data layer
+  databaseUrl: required("DATABASE_URL"),
+
+  // Stage 2 — auth
+  jwtSecret: required("JWT_SECRET"),
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
+};

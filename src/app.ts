@@ -5,6 +5,7 @@ import { pinoHttp } from "pino-http";
 
 import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
+import { authRouter } from "./modules/auth/auth.routes.js";
 import { healthRouter } from "./modules/health/health.routes.js";
 
 export function createApp() {
@@ -26,10 +27,12 @@ export function createApp() {
   );
 
   app.use(healthRouter);
+  app.use(authRouter);
 
-  // Stage 2+ routers get mounted here as they're built:
-  // app.use("/auth", authRouter);
-  // app.use("/universities", catalogRouter);
+  // Stage 3+ routers get mounted here as they're built:
+  // app.use(catalogRouter);      // GET /universities, /courses/:id/requirements, ...
+  // app.use(assessmentRouter);   // POST /eligibility/verify, /scoring/aggregate, /assessments, ...
+  // app.use(adminRouter);        // /admin/*
   // ...
 
   app.use(notFoundHandler);

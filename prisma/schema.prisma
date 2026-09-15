@@ -1,0 +1,213 @@
+// PlaceRight backend — Stage 1 data layer.
+// Mirrors src/types/domain.ts in the frontend repo (future-admissions-compass) 1:1 wherever possible.
+// See docs/backend-implementation-plan.md and docs/jamb-data-dossier.md in that repo for the full spec.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CANDIDATE
+  ADMIN
+}
+
+enum OLevelGrade {
+  A1
+  B2
+  B3
+  C4
+  C5
+  C6
+  D7
+  E8
+  F9
+}
+
+enum EvaluationModule {
+  VERIFICATION
+  SCORING
+  CATCHMENT
+  RECOMMENDATION
+}
+
+enum EvaluationOutcome {
+  SUCCESS
+  FAILURE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  fullName     String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  role         UserRole @default(CANDIDATE)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  candidateProfile CandidateProfile?
+  adminLogEntries  AdminLogEntry[]
+
+  @@map("users")
+}
+
+model University {
+  id           String @id @default(cuid())
+  code         String @unique // "UI" | "UNILAG" | "OAU" | "FUTA" | "FUNAAB" | "FUOYE"
+  name         String
+  locationState String
+
+  courses        Course[]
+  scoringPolicy  ScoringPolicy?
+  catchmentRule  CatchmentRule?
+
+  @@map("universities")
+}
+
+model Course {
+  id               String @id @default(cuid())
+  universityId     String
+  university       University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  name             String
+  faculty          String
+  meritCutOff      Float
+  catchmentCutOff  Float
+  eldsCutOff       Float
+
+  /// Per-catchment-state cut-off overrides, e.g. { "Lagos": 73, "Ogun": 76 }.
+  /// Falls back to catchmentCutOff for any state not present here.
+  /// See the dossier's UNILAG/OAU sections — this is a real published pattern, not a hypothetical.
+  catchmentCutOffByState Json?
+
+  /// Same idea as catchmentCutOffByState, but for ELDS (only OAU publishes this so far).
+  eldsCutOffByState Json?
+
+  requirement    AdmissionRequirement?
+  assessments    AssessmentReport[]
+
+  @@unique([universityId, name])
+  @@map("courses")
+}
+
+model AdmissionRequirement {
+  id                     String   @id @default(cuid())
+  courseId               String   @unique
+  course                 Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  requiredUtmeSubjects   String[]
+  optionalUtmeSubjects   String[]
+  requiredOLevelSubjects String[]
+  minimumCredits         Int
+
+  @@map("admission_requirements")
+}
+
+model ScoringPolicy {
+  id               String     @id @default(cuid())
+  universityId     String     @unique
+  university       University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  utmeWeighting    Float
+  postUtmeWeighting Float
+  oLevelWeighting  Float
+  utmeMaxScore     Float
+  postUtmeMaxScore Float
+
+  @@map("scoring_policies")
+}
+
+model CatchmentRule {
+  id                    String     @id @default(cuid())
+  universityId          String     @unique
+  university            University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  catchmentStates       String[]
+  eldsStates            String[]
+  meritQuotaPercent     Float
+  catchmentQuotaPercent Float
+  eldsQuotaPercent      Float
+
+  @@map("catchment_rules")
+}
+
+model CandidateProfile {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName            String
+  email               String
+  stateOfOrigin       String
+  lga                 String
+  schoolLocationState String
+  utmeScore           Int
+  postUtmeScore       Int?
+  utmeSubjects        String[]
+  targetCourseId      String?
+  targetUniversityId  String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  oLevelResults OLevelResult[]
+  assessments   AssessmentReport[]
+
+  @@map("candidate_profiles")
+}
+
+model OLevelResult {
+  id                 String           @id @default(cuid())
+  candidateProfileId String
+  candidateProfile   CandidateProfile @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+  subject            String
+  grade              OLevelGrade
+
+  @@map("olevel_results")
+}
+
+/// Stores the full VerificationResult / AggregateScoreResult / CatchmentResult / CourseRecommendation[] /
+/// AssessmentContext JSON blobs alongside a few indexed columns for querying — those four result shapes
+/// are read-mostly, candidate-specific, and never queried by their internal fields, so JSON keeps this
+/// model simple instead of another five tables of columns that mirror the frontend's TS shapes exactly.
+model AssessmentReport {
+  id                 String           @id @default(cuid())
+  candidateProfileId String
+  candidateProfile   CandidateProfile @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+  courseId           String
+  course             Course           @relation(fields: [courseId], references: [id])
+  createdAt          DateTime         @default(now())
+
+  verification    Json // VerificationResult
+  score           Json? // AggregateScoreResult | null
+  catchment       Json // CatchmentResult
+  recommendations Json // CourseRecommendation[]
+  context         Json // AssessmentContext
+
+  @@index([candidateProfileId])
+  @@map("assessment_reports")
+}
+
+model AdminLogEntry {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  actorId   String
+  actor     User     @relation(fields: [actorId], references: [id])
+  action    String
+  entity    String
+  summary   String
+
+  @@map("admin_log_entries")
+}
+
+model EvaluationEvent {
+  id            String            @id @default(cuid())
+  timestamp     DateTime          @default(now())
+  candidateId   String
+  module        EvaluationModule
+  outcome       EvaluationOutcome
+  latencyMs     Int
+
+  @@index([module, outcome])
+  @@index([timestamp])
+  @@map("evaluation_events")
+}

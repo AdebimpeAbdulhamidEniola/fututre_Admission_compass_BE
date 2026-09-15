@@ -2,19 +2,39 @@
 
 Express.js backend for [PlaceRight](https://github.com/AdebimpeAbdulhamidEniola/future-admissions-compass) — a decision-support system for university admission placement in Nigeria. This repo implements the contract already defined by the frontend (`src/types/domain.ts`, `src/lib/http.ts`, and the endpoint list in that repo's README).
 
-Being built stage by stage per [`docs/backend-implementation-plan.md`](https://github.com/AdebimpeAbdulhamidEniola/future-admissions-compass/blob/main/docs/backend-implementation-plan.md) in the frontend repo. **Stage 0 (this commit): project scaffold** — an Express app that boots, has the error envelope wired, and passes a health check.
+Being built stage by stage per [`docs/backend-implementation-plan.md`](https://github.com/AdebimpeAbdulhamidEniola/future-admissions-compass/blob/main/docs/backend-implementation-plan.md) in the frontend repo.
+
+**Done so far:**
+- **Stage 0 — project scaffold.** Express app that boots, error envelope wired, health check.
+- **Stage 1 — data layer.** Postgres via Prisma. Schema mirrors `domain.ts` (`University`, `Course`, `AdmissionRequirement`, `ScoringPolicy`, `CatchmentRule`, `CandidateProfile`, `AssessmentReport`, `User`, `AdminLogEntry`, `EvaluationEvent`). Seed script loads all 6 universities plus a **starter subset of 18 real courses** (3 per university) sourced from `docs/jamb-data-dossier.md` — not the full 210-course catalog yet, see "What's not done yet" below.
+- **Stage 2 — auth.** `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, JWT-based, bcrypt password hashing, `requireAuth`/`requireAdmin` middleware.
 
 ## Getting started
+
+Requires a Postgres database (a free tier on Neon/Supabase/Railway works fine, or run one locally).
 
 ```sh
 npm install
 cp .env.example .env
+# edit .env: set DATABASE_URL to your Postgres instance, and JWT_SECRET to `openssl rand -hex 32`
+
+npm run db:migrate   # creates the schema (prompts for a migration name the first time)
+npm run db:seed      # loads the 6 universities + starter course subset
+
 npm run dev
 ```
 
 ```sh
 curl http://localhost:3000/health
 # {"status":"ok","timestamp":"..."}
+
+curl -X POST http://localhost:3000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"fullName":"Ada Lovelace","email":"ada@example.com","phone":"08012345678","password":"correcthorsebatterystaple"}'
+# {"accessToken":"...","user":{"id":"...","fullName":"Ada Lovelace","email":"ada@example.com","phone":"08012345678","role":"CANDIDATE"}}
+
+curl http://localhost:3000/auth/me -H "Authorization: Bearer <accessToken from above>"
+# {"id":"...","fullName":"Ada Lovelace", ...}
 
 curl http://localhost:3000/nonexistent
 # {"statusCode":404,"message":"Cannot GET /nonexistent","error":"Not Found"}
@@ -27,6 +47,9 @@ curl http://localhost:3000/nonexistent
 - `npm start` — run the compiled build
 - `npm run typecheck` — `tsc --noEmit`
 - `npm run lint` / `npm run format`
+- `npm run db:migrate` — apply Prisma schema migrations (dev)
+- `npm run db:seed` — run `prisma/seed.ts`
+- `npm run db:studio` — Prisma's DB browser GUI
 
 ## Error envelope
 
@@ -42,26 +65,55 @@ router.get("/courses/:id", (req, res) => {
 });
 ```
 
-Async handlers: Express 4 doesn't auto-catch rejected promises, so wrap async route handlers or throw synchronously before the first `await` until Stage 7 adds a wrapper — this scaffold doesn't have any async routes yet.
+Async route handlers must be wrapped in `asyncHandler` (`src/lib/async-handler.ts`) — Express 4 doesn't catch rejected promises on its own, so an unwrapped async handler that throws will hang the request instead of reaching the error handler. See `src/modules/auth/auth.routes.ts` for the pattern.
+
+## Auth
+
+- `POST /auth/register` — `{ fullName, email, phone, password }` → `AuthSession`. Always creates a `CANDIDATE`; there's no public admin-signup endpoint (matches the contract). Promote a user to `ADMIN` directly in the database, or via `npm run db:studio`.
+- `POST /auth/login` — `{ email, password }` → `AuthSession`.
+- `GET /auth/me` — requires `Authorization: Bearer <token>` → `AuthUser`.
+- `requireAuth` / `requireAdmin` (`src/modules/auth/auth.middleware.ts`) — use on any route that needs a signed-in user or an admin specifically.
+
+## Data model notes
+
+- `Course.catchmentCutOffByState` / `eldsCutOffByState` (JSON) hold **per-state** cut-off overrides for universities that publish them (UNILAG, OAU) — see the dossier's UNILAG section for why a single flat number per course doesn't match what these universities actually publish. Falls back to `catchmentCutOff`/`eldsCutOff` when a state isn't present in the map. The frontend's `Course` type mirrors this exactly (`src/types/domain.ts` in the frontend repo).
+- `AssessmentReport` stores `VerificationResult` / `AggregateScoreResult` / `CatchmentResult` / `CourseRecommendation[]` / `AssessmentContext` as JSON rather than five more tables — those shapes are read-mostly, per-candidate, and never queried by their internal fields.
+
+## What's not done yet
+
+- **The remaining ~192 courses.** The seed script has 18 real, dossier-sourced courses (3 per university) to exercise the schema end-to-end — not the full 210-course catalog. Extending it is straightforward: add entries to the `UNIVERSITIES` array in `prisma/seed.ts` following the existing pattern, sourced from `docs/jamb-data-dossier.md`.
+- **Stage 3 onward** — public catalog endpoints, the eligibility/scoring/catchment/recommendation engine (port from the frontend's `src/mocks/engine.ts`, which is the reference implementation), admin CRUD, metrics, hardening. See the frontend repo's `docs/backend-implementation-plan.md`.
+- **OAU's Law/Accounting split, FUOYE's Law faculty (open question), UI's real catchment/ELDS state names, FUTA's "Social & Management Sciences" faculty (open question)** — all flagged in the dossier as unresolved; don't treat the seed script's placeholders for these as settled.
 
 ## Folder layout
 
 ```
+prisma/
+  schema.prisma       Data model — mirrors domain.ts in the frontend repo
+  seed.ts             Seed script (6 universities + starter course subset)
 src/
   app.ts              Express app wiring (middleware, routers, error handler)
-  server.ts           entrypoint — starts the HTTP listener
+  server.ts           entrypoint — starts the HTTP listener, graceful shutdown
   config/
     env.ts            env loading + validation
+  db/
+    client.ts          shared PrismaClient instance
   lib/
-    errors.ts         ApiError + helpers (notFound, badRequest, ...)
+    errors.ts          ApiError + helpers (notFound, badRequest, unauthorized, forbidden)
+    async-handler.ts   wraps async route handlers so rejections reach the error handler
+    jwt.ts              sign/verify access tokens
+    validate.ts         zod schema → parsed input or a 400 ApiError
   middleware/
-    error-handler.ts  global error handler + 404 handler
+    error-handler.ts   global error handler + 404 handler
   modules/
-    health/           GET /health
-    # auth/, candidates/, catalog/, eligibility/, scoring/, catchment/,
+    health/            GET /health
+    auth/               register, login, me, requireAuth, requireAdmin
+    # candidates/, catalog/, eligibility/, scoring/, catchment/,
     # recommendations/, assessments/, admin/, evaluation/ — added stage by stage
+  types/
+    express.d.ts        augments Express's Request with `user?: AuthUser`
 ```
 
 ## Roadmap
 
-See the frontend repo's `docs/backend-implementation-plan.md` for the full 8-stage plan and `docs/jamb-data-dossier.md` for the seed-data specification (per-university cut-offs, scoring formulas, catchment/ELDS data). Next up: **Stage 1 — data layer** (Postgres + an ORM, schema for `University`/`Course`/`AdmissionRequirement`/`ScoringPolicy`/`CatchmentRule`, seed script from the dossier).
+See the frontend repo's `docs/backend-implementation-plan.md` for the full 8-stage plan and `docs/jamb-data-dossier.md` for the seed-data specification (per-university cut-offs, scoring formulas, catchment/ELDS data). Next up: **Stage 3 — public catalog endpoints** (`GET /universities`, `/universities/:id/courses`, `/universities/:id/scoring-policy`, `/universities/:id/catchment-rule`, `/courses/:id/requirements`, all public/no-auth).
