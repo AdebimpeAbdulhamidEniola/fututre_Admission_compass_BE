@@ -8,6 +8,7 @@ Being built stage by stage per [`docs/backend-implementation-plan.md`](https://g
 - **Stage 0 — project scaffold.** Express app that boots, error envelope wired, health check.
 - **Stage 1 — data layer.** Postgres via Prisma. Schema mirrors `domain.ts` (`University`, `Course`, `AdmissionRequirement`, `ScoringPolicy`, `CatchmentRule`, `CandidateProfile`, `AssessmentReport`, `User`, `AdminLogEntry`, `EvaluationEvent`). Seed script loads all 6 universities plus a **starter subset of 18 real courses** (3 per university) sourced from `docs/jamb-data-dossier.md` — not the full 210-course catalog yet, see "What's not done yet" below.
 - **Stage 2 — auth.** `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, JWT-based, bcrypt password hashing, `requireAuth`/`requireAdmin` middleware.
+- **Stage 3 — public catalog endpoints.** `GET /universities`, `/universities/:id/courses`, `/universities/:id/scoring-policy`, `/universities/:id/catchment-rule`, `/courses/:id/requirements` — all public, no auth. 404s via the standard envelope for unknown IDs.
 
 ## Getting started
 
@@ -108,7 +109,9 @@ src/
   modules/
     health/            GET /health
     auth/               register, login, me, requireAuth, requireAdmin
-    # candidates/, catalog/, eligibility/, scoring/, catchment/,
+    catalog/            GET /universities, /universities/:id/courses, .../scoring-policy,
+                        .../catchment-rule, /courses/:id/requirements — all public
+    # candidates/, eligibility/, scoring/, catchment/,
     # recommendations/, assessments/, admin/, evaluation/ — added stage by stage
   types/
     express.d.ts        augments Express's Request with `user?: AuthUser`
@@ -116,4 +119,4 @@ src/
 
 ## Roadmap
 
-See the frontend repo's `docs/backend-implementation-plan.md` for the full 8-stage plan and `docs/jamb-data-dossier.md` for the seed-data specification (per-university cut-offs, scoring formulas, catchment/ELDS data). Next up: **Stage 3 — public catalog endpoints** (`GET /universities`, `/universities/:id/courses`, `/universities/:id/scoring-policy`, `/universities/:id/catchment-rule`, `/courses/:id/requirements`, all public/no-auth).
+See the frontend repo's `docs/backend-implementation-plan.md` for the full 8-stage plan and `docs/jamb-data-dossier.md` for the seed-data specification (per-university cut-offs, scoring formulas, catchment/ELDS data). Next up: **Stage 4 — candidate profile + the assessment engine** (`POST /candidates/profile`, `GET`/`PATCH /candidates/me`, `POST /eligibility/verify`, `/scoring/aggregate`, `/catchment/classify`, `/recommendations`, `/assessments` — port the logic from the frontend's `src/mocks/engine.ts`, the reference implementation).
