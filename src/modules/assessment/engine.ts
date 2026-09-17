@@ -4,13 +4,14 @@
  * data via Prisma instead of in-memory mock arrays. Keep this logic in lockstep with the
  * frontend's engine.ts; it's the single source of truth for the business rules.
  */
-import type { CatchmentRule, Course, OLevelGrade } from "@prisma/client";
+import type { CatchmentRule, Course, OLevelGrade, ScoringPolicy } from "@prisma/client";
 
 import { prisma } from "../../db/client.js";
 import { badRequest } from "../../lib/errors.js";
 import type { CandidateProfileInput } from "./candidate-profile.schema.js";
 
-const GRADE_POINTS: Record<OLevelGrade, number> = {
+// Generic fallback table. Only used when a university's ScoringPolicy.oLevelGradePoints is null.
+const GENERIC_GRADE_POINTS: Record<OLevelGrade, number> = {
   A1: 10,
   B2: 9,
   B3: 8,
@@ -23,6 +24,18 @@ const GRADE_POINTS: Record<OLevelGrade, number> = {
 };
 
 const CREDIT_GRADES: OLevelGrade[] = ["A1", "B2", "B3", "C4", "C5", "C6"];
+
+/**
+ * A university's O'Level grade table isn't always the generic one — FUNAAB's confirmed formula
+ * (helpdesk.funaab.edu.ng, Article ID 30) uses A1=6..C6=1 (max 30), not the generic A1=10..C6=5
+ * (max 50). Normalizing by each table's own max (best possible score across 5 subjects) keeps
+ * the resulting percentage correct regardless of which table is in play.
+ */
+function resolveGradePointsTable(policy: ScoringPolicy): Record<OLevelGrade, number> {
+  const raw = policy.oLevelGradePoints as Record<string, number> | null;
+  if (!raw) return GENERIC_GRADE_POINTS;
+  return { ...GENERIC_GRADE_POINTS, ...raw } as Record<OLevelGrade, number>;
+}
 
 export type CatchmentStatus = "MERIT" | "CATCHMENT" | "ELDS";
 
@@ -228,10 +241,12 @@ export async function computeAggregate(candidate: CandidateProfileInput): Promis
 
   const utmePercent = (candidate.utmeScore / policy.utmeMaxScore) * 100;
   const postUtmePercent = ((candidate.postUtmeScore ?? 0) / policy.postUtmeMaxScore) * 100;
+  const gradePoints = resolveGradePointsTable(policy);
+  const oLevelMaxPoints = Math.max(...Object.values(gradePoints)) * 5;
   const oLevelPoints = candidate.oLevelResults
     .slice(0, 5)
-    .reduce((sum, r) => sum + GRADE_POINTS[r.grade], 0);
-  const oLevelPercent = (oLevelPoints / 50) * 100;
+    .reduce((sum, r) => sum + gradePoints[r.grade], 0);
+  const oLevelPercent = (oLevelPoints / oLevelMaxPoints) * 100;
 
   const breakdown: AggregateScoreResult["breakdown"] = [
     {

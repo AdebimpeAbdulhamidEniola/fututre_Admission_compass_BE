@@ -139,6 +139,7 @@ interface UniversitySeed {
     oLevelWeighting: number;
     utmeMaxScore: number;
     postUtmeMaxScore: number;
+    oLevelGradePoints?: Record<string, number>;
   };
   catchmentRule: {
     catchmentStates: string[];
@@ -456,9 +457,19 @@ const UNIVERSITIES: UniversitySeed[] = [
   },
 
   // ============================================================================================
-  // FUNAAB — cut-offs Confirmed (funaab.edu.ng, 2026/27 portal), formula Confirmed
-  // (helpdesk.funaab.edu.ng). SCALE MISMATCH: these are raw 0–400 JAMB floors, not the 0–100
-  // aggregate the Confirmed formula computes — see the SCALE NOTE at the top of this file.
+  // FUNAAB — formula Confirmed (helpdesk.funaab.edu.ng, Article ID 30): straight 50% UTME + 50%
+  // O'Level, NO Post-UTME/screening term at all (FUNAAB runs an online screening exercise, but
+  // it's an eligibility/verification step, not a scored component — postUtmeWeighting: 0).
+  // O'Level grade table is FUNAAB-specific too (A1=6..C6=1, max 30, vs. the engine's generic
+  // A1=10..C6=5, max 50) — see oLevelGradePoints below and resolveGradePointsTable() in engine.ts.
+  //
+  // meritCutOff is null for every course here on purpose, NOT a gap: FUNAAB's live portal
+  // publishes raw 0–400 JAMB floors per course (kept in the comment after each line below for
+  // reference), but the Confirmed formula produces a 0–100 aggregate. Those two numbers are not
+  // the same thing, and there's no published aggregate cut-off to compare against — storing the
+  // raw floor as meritCutOff would make the engine compare a 0–100 score against a 0–400 number,
+  // which is silently wrong (every candidate would appear to fail). See the SCALE NOTE at the
+  // top of this file.
   // "Law" and "Arts" excluded: the dossier states neither faculty exists at FUNAAB.
   // Catchment states Confirmed (Ogun/Oyo/Osun/Ondo/Ekiti/Lagos); no catchment/ELDS cut-off
   // numbers are published anywhere — null for every course.
@@ -467,7 +478,15 @@ const UNIVERSITIES: UniversitySeed[] = [
     code: "FUNAAB",
     name: "Federal University of Agriculture, Abeokuta",
     locationState: "Ogun",
-    scoringPolicy: { utmeWeighting: 50, postUtmeWeighting: 0, oLevelWeighting: 50, utmeMaxScore: 400, postUtmeMaxScore: 100 },
+    scoringPolicy: {
+      utmeWeighting: 50,
+      postUtmeWeighting: 0,
+      oLevelWeighting: 50,
+      utmeMaxScore: 400,
+      postUtmeMaxScore: 100,
+      // Confirmed, helpdesk.funaab.edu.ng Article ID 30: A1=6, B2=5, B3=4, C4=3, C5=2, C6=1, D7-F9=0.
+      oLevelGradePoints: { A1: 6, B2: 5, B3: 4, C4: 3, C5: 2, C6: 1, D7: 0, E8: 0, F9: 0 },
+    },
     catchmentRule: {
       catchmentStates: ["Ogun", "Oyo", "Osun", "Ondo", "Ekiti", "Lagos"],
       eldsStates: NATIONAL_ELDS_STATES,
@@ -476,41 +495,41 @@ const UNIVERSITIES: UniversitySeed[] = [
       eldsQuotaPercent: 20,
     },
     courses: [
-      c("Veterinary Medicine (DVM)", "Clinical Sciences", 200, null, null),
-      c("Agricultural Engineering", "Engineering & Technology", 200, null, null),
-      c("Civil Engineering", "Engineering & Technology", 200, null, null),
-      c("Electrical and Electronics Engineering", "Engineering & Technology", 200, null, null),
-      c("Mechanical Engineering", "Engineering & Technology", 200, null, null),
-      c("Mechatronic Engineering", "Engineering & Technology", 200, null, null),
-      c("Agricultural Economics and Farm Management", "Social & Management Sciences", 160, null, null),
-      c("Agricultural Extension and Rural Development", "Social & Management Sciences", 160, null, null),
-      c("Agricultural Administration", "Social & Management Sciences", 160, null, null),
-      c("Cooperative Studies", "Social & Management Sciences", 160, null, null),
-      c("Development Studies", "Social & Management Sciences", 160, null, null),
-      c("Accounting", "Social & Management Sciences", 200, null, null),
-      c("Banking and Finance", "Social & Management Sciences", 200, null, null),
-      c("Business Administration", "Social & Management Sciences", 200, null, null),
-      c("Economics", "Social & Management Sciences", 200, null, null),
-      c("Computer Science", "Science", 200, null, null),
-      c("Physics", "Science", 200, null, null),
-      c("Chemistry", "Science", 180, null, null),
-      c("Biochemistry", "Science", 200, null, null),
-      c("Microbiology", "Science", 200, null, null),
-      c("Mathematics", "Science", 200, null, null),
-      c("Statistics", "Science", 200, null, null),
-      c("Cyber Security", "Science", 200, null, null),
-      c("Data Science", "Science", 200, null, null),
-      c("Information Technology", "Science", 200, null, null),
-      c("Software Engineering", "Science", 200, null, null),
-      c("Animal Production and Health", "Agriculture", 160, null, null),
-      c("Crop Protection", "Agriculture", 160, null, null),
-      c("Soil Science and Land Management", "Agriculture", 160, null, null),
-      c("Aquaculture and Fisheries Management", "Agriculture", 160, null, null),
-      c("Forest Resource Management", "Agriculture", 160, null, null),
-      c("Animal Breeding and Genetics", "Agriculture", 160, null, null),
-      c("Plant Breeding and Seed Technology", "Agriculture", 160, null, null),
-      c("Horticulture", "Agriculture", 160, null, null),
-      c("Wildlife and Eco-tourism Management", "Agriculture", 160, null, null),
+      c("Veterinary Medicine (DVM)", "Clinical Sciences", null, null, null), // raw JAMB floor 200
+      c("Agricultural Engineering", "Engineering & Technology", null, null, null), // raw JAMB floor 200
+      c("Civil Engineering", "Engineering & Technology", null, null, null), // raw JAMB floor 200
+      c("Electrical and Electronics Engineering", "Engineering & Technology", null, null, null), // raw JAMB floor 200
+      c("Mechanical Engineering", "Engineering & Technology", null, null, null), // raw JAMB floor 200
+      c("Mechatronic Engineering", "Engineering & Technology", null, null, null), // raw JAMB floor 200
+      c("Agricultural Economics and Farm Management", "Social & Management Sciences", null, null, null), // raw JAMB floor 160
+      c("Agricultural Extension and Rural Development", "Social & Management Sciences", null, null, null), // raw JAMB floor 160
+      c("Agricultural Administration", "Social & Management Sciences", null, null, null), // raw JAMB floor 160
+      c("Cooperative Studies", "Social & Management Sciences", null, null, null), // raw JAMB floor 160
+      c("Development Studies", "Social & Management Sciences", null, null, null), // raw JAMB floor 160
+      c("Accounting", "Social & Management Sciences", null, null, null), // raw JAMB floor 200
+      c("Banking and Finance", "Social & Management Sciences", null, null, null), // raw JAMB floor 200
+      c("Business Administration", "Social & Management Sciences", null, null, null), // raw JAMB floor 200
+      c("Economics", "Social & Management Sciences", null, null, null), // raw JAMB floor 200
+      c("Computer Science", "Science", null, null, null), // raw JAMB floor 200
+      c("Physics", "Science", null, null, null), // raw JAMB floor 200
+      c("Chemistry", "Science", null, null, null), // raw JAMB floor 180
+      c("Biochemistry", "Science", null, null, null), // raw JAMB floor 200
+      c("Microbiology", "Science", null, null, null), // raw JAMB floor 200
+      c("Mathematics", "Science", null, null, null), // raw JAMB floor 200
+      c("Statistics", "Science", null, null, null), // raw JAMB floor 200
+      c("Cyber Security", "Science", null, null, null), // raw JAMB floor 200
+      c("Data Science", "Science", null, null, null), // raw JAMB floor 200
+      c("Information Technology", "Science", null, null, null), // raw JAMB floor 200
+      c("Software Engineering", "Science", null, null, null), // raw JAMB floor 200
+      c("Animal Production and Health", "Agriculture", null, null, null), // raw JAMB floor 160
+      c("Crop Protection", "Agriculture", null, null, null), // raw JAMB floor 160
+      c("Soil Science and Land Management", "Agriculture", null, null, null), // raw JAMB floor 160
+      c("Aquaculture and Fisheries Management", "Agriculture", null, null, null), // raw JAMB floor 160
+      c("Forest Resource Management", "Agriculture", null, null, null), // raw JAMB floor 160
+      c("Animal Breeding and Genetics", "Agriculture", null, null, null), // raw JAMB floor 160
+      c("Plant Breeding and Seed Technology", "Agriculture", null, null, null), // raw JAMB floor 160
+      c("Horticulture", "Agriculture", null, null, null), // raw JAMB floor 160
+      c("Wildlife and Eco-tourism Management", "Agriculture", null, null, null), // raw JAMB floor 160
     ],
   },
 
