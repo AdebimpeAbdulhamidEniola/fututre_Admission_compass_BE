@@ -75,9 +75,16 @@ model Course {
   university       University @relation(fields: [universityId], references: [id], onDelete: Cascade)
   name             String
   faculty          String
-  meritCutOff      Float
-  catchmentCutOff  Float
-  eldsCutOff       Float
+
+  /// Nullable because the dossier (docs/jamb-data-dossier.md) genuinely has no confirmed figure
+  /// for some courses (e.g. FUTA Chemical Engineering, several FUTA "estimate only" rows) — null
+  /// means "not yet known," never a guessed value. Also null for FUTA/FUNAAB/FUOYE courses whose
+  /// only published figure is on a scale (raw 0-400 JAMB, or an "estimated JAMB score") that isn't
+  /// comparable to the 0-100 aggregate computeAggregate() produces — see the seed script's
+  /// SCALE NOTE for exactly which universities/courses this affects and why.
+  meritCutOff      Float?
+  catchmentCutOff  Float?
+  eldsCutOff       Float?
 
   /// Per-catchment-state cut-off overrides, e.g. { "Lagos": 73, "Ogun": 76 }.
   /// Falls back to catchmentCutOff for any state not present here.

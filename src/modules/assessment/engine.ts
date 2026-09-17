@@ -173,7 +173,7 @@ function resolveCutOff(
   status: CatchmentStatus,
   candidate: CandidateProfileInput,
   rule: CatchmentRule | null,
-): { value: number; state: string | null } {
+): { value: number | null; state: string | null } {
   if (status === "MERIT") return { value: course.meritCutOff, state: null };
   if (status === "ELDS") {
     const state = candidate.stateOfOrigin;
@@ -185,6 +185,16 @@ function resolveCutOff(
   return specific !== undefined && state !== null
     ? { value: specific, state }
     : { value: course.catchmentCutOff, state: null };
+}
+
+/** resolveCutOff() returns null when the dossier has no confirmed figure for this course/status — surface that clearly instead of silently comparing against 0 or null. */
+function requireCutOffValue(resolved: { value: number | null; state: string | null }, courseName: string, status: CatchmentStatus) {
+  if (resolved.value === null) {
+    throw badRequest(
+      `No confirmed ${status.toLowerCase()} cut-off is available yet for "${courseName}" — see docs/jamb-data-dossier.md.`,
+    );
+  }
+  return { value: resolved.value, state: resolved.state };
 }
 
 export interface AggregateScoreResult {
@@ -246,7 +256,11 @@ export async function computeAggregate(candidate: CandidateProfileInput): Promis
 
   const aggregate = round(breakdown.reduce((s, b) => s + b.contribution, 0));
   const rule = await prisma.catchmentRule.findUnique({ where: { universityId: candidate.targetUniversityId } });
-  const applicableCutOff = resolveCutOff(course, catchment.status, candidate, rule).value;
+  const applicableCutOff = requireCutOffValue(
+    resolveCutOff(course, catchment.status, candidate, rule),
+    course.name,
+    catchment.status,
+  ).value;
 
   return {
     aggregate,
@@ -287,6 +301,10 @@ export async function recommendCourses(candidate: CandidateProfileInput): Promis
     .map((course) => {
       const courseRule = ruleByUniversityId.get(course.universityId) ?? null;
       const cutOff = resolveCutOff(course, catchment.status, candidate, courseRule).value;
+      return cutOff === null ? null : { course, cutOff };
+    })
+    .filter((entry): entry is { course: (typeof courses)[number]; cutOff: number } => entry !== null)
+    .map(({ course, cutOff }) => {
       const headroom = score.aggregate - cutOff;
       const matchProbability = clamp(0.5 + headroom / 30, 0.02, 0.97);
       const rationale = [
@@ -325,7 +343,10 @@ export interface AssessmentContext {
   optionalUtmeSubjects: string[];
   requiredOLevelSubjects: string[];
   minimumCredits: number;
-  cutOffs: { merit: number; catchment: number; elds: number };
+  // Nullable: the dossier has no confirmed figure for every course/status combination yet — see
+  // Course.meritCutOff's doc comment in schema.prisma. This is a deliberate deviation from the
+  // frontend's current (non-nullable) AssessmentContext.cutOffs type, flagged in the README.
+  cutOffs: { merit: number | null; catchment: number | null; elds: number | null };
   cutOffStates: { catchment: string | null; elds: string | null };
   quotaPercents: { merit: number; catchment: number; elds: number };
 }

@@ -1,14 +1,34 @@
 /**
- * Stage 1 seed script.
+ * Stage 1 seed script — full catalog.
  *
- * Seeds all 6 universities with their scoring policy and catchment rule, plus a STARTER SUBSET
- * of 3 real courses each (18 total, not the full 210-course catalog from the dossier) so the
- * schema and the per-state cut-off feature can be exercised end-to-end against real numbers.
+ * Every course, faculty, and cut-off figure below is transcribed directly from
+ * docs/jamb-data-dossier.md in the frontend repo (AdebimpeAbdulhamidEniola/future-admissions-compass).
+ * Nothing here is invented: where the dossier has no confirmed figure for a course (marked "—"),
+ * the corresponding field is `null`, not a guess. Re-read the dossier before changing any number
+ * here rather than trusting this file's history.
  *
- * Every figure here traces to docs/jamb-data-dossier.md in the frontend repo
- * (AdebimpeAbdulhamidEniola/future-admissions-compass) — confidence noted per university.
- * Completing the remaining ~192 courses is Stage 1 follow-up work, not blocking later stages
- * (the dossier explicitly says: seed what's confirmed, extend via the admin endpoints later).
+ * SCALE NOTE — read before touching cut-off numbers:
+ * computeAggregate() always produces a 0–100 aggregate (it converts every component to a percent
+ * of its max before applying weightings), so Course.meritCutOff/catchmentCutOff/eldsCutOff must be
+ * on that same 0–100 scale to compare sensibly.
+ *   - UI, UNILAG, OAU: dossier gives a native 0–100 aggregate. Used as-is.
+ *   - FUTA, FUOYE: dossier gives BOTH a 0–100 aggregate and a separate raw-JAMB/"estimated JAMB
+ *     score" figure. Only the 0–100 aggregate column is used here; the raw-JAMB figures are not
+ *     stored (no schema field for them) and must not be substituted in as if comparable.
+ *   - FUNAAB: the dossier's ONLY published cut-off is the raw 0–400 JAMB floor — no 0–100 aggregate
+ *     is published anywhere, even though FUNAAB's own Confirmed formula computes one internally.
+ *     Seeded here as published (raw 0–400), which means computeAggregate() (maxing at 100) can
+ *     never clear a FUNAAB cut-off of 160–200. This is a known, UNRESOLVED scale mismatch inherited
+ *     from the source data, not a bug introduced here — see the dossier's FUNAAB section and its
+ *     "why cut-off scales aren't comparable" callout. Needs a real FUNAAB 0–100 aggregate figure
+ *     (Stage 5 admin CRUD, or further research) before FUNAAB assessments can work correctly.
+ *
+ * EXCLUDED COURSES: FUTA and FUNAAB's dossier tables include "Law" / "Arts" placeholder rows
+ * stating "No Law faculty exists" / "No Arts faculty exists" — those are informational asides in
+ * the dossier's markdown, not real courses, and are not seeded. FUOYE's Law row DOES have a cut-off
+ * value (150) but the dossier flags it as an open question whether the faculty exists at all
+ * (absent from an otherwise-exhaustive 14-faculty admission-requirements document) — seeded anyway
+ * since a real number exists, but flagged loudly below.
  */
 import { PrismaClient } from "@prisma/client";
 
@@ -21,6 +41,93 @@ const NATIONAL_ELDS_STATES = [
   "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Nasarawa", "Niger",
   "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara",
 ];
+
+// --- AdmissionRequirement templates, keyed by faculty. --------------------------------------
+// The dossier documents a general per-stream O'Level/UTME rule (see its UNILAG and FUTA
+// sections) rather than an exact subject list for every one of the 210 courses — applying it
+// uniformly here is the honest choice, not a shortcut, since inventing a more specific
+// combination per course wouldn't trace to anything in the source. The one exception is FUOYE,
+// which has its own detailed per-course admission-requirements document (see the dossier's
+// FUOYE section and this repo's README) — worth revisiting this file once that's transcribed.
+interface RequirementTemplate {
+  requiredUtmeSubjects: string[];
+  optionalUtmeSubjects: string[];
+  requiredOLevelSubjects: string[];
+  minimumCredits: number;
+}
+
+const REQUIREMENT_TEMPLATES: Record<string, RequirementTemplate> = {
+  "Clinical Sciences": {
+    requiredUtmeSubjects: ["Biology", "Chemistry", "Physics"],
+    optionalUtmeSubjects: ["Mathematics"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Biology", "Chemistry", "Physics"],
+    minimumCredits: 5,
+  },
+  Law: {
+    requiredUtmeSubjects: ["Literature in English", "Government"],
+    optionalUtmeSubjects: ["History", "Economics"],
+    requiredOLevelSubjects: ["English Language", "Literature in English", "Government"],
+    minimumCredits: 5,
+  },
+  Arts: {
+    requiredUtmeSubjects: ["Literature in English"],
+    optionalUtmeSubjects: ["History", "Government", "Christian Religious Studies", "Yoruba"],
+    requiredOLevelSubjects: ["English Language", "Literature in English"],
+    minimumCredits: 5,
+  },
+  "Social & Management Sciences": {
+    requiredUtmeSubjects: ["Mathematics", "Economics"],
+    optionalUtmeSubjects: ["Government", "Geography", "Commerce"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Economics"],
+    minimumCredits: 5,
+  },
+  "Engineering & Technology": {
+    requiredUtmeSubjects: ["Mathematics", "Physics", "Chemistry"],
+    optionalUtmeSubjects: ["Further Mathematics"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Physics", "Chemistry"],
+    minimumCredits: 5,
+  },
+  Science: {
+    requiredUtmeSubjects: ["Mathematics", "Physics"],
+    optionalUtmeSubjects: ["Chemistry", "Biology"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Physics", "Chemistry"],
+    minimumCredits: 5,
+  },
+  Agriculture: {
+    requiredUtmeSubjects: ["Chemistry", "Biology"],
+    optionalUtmeSubjects: ["Mathematics", "Physics", "Agricultural Science"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Biology", "Chemistry"],
+    minimumCredits: 5,
+  },
+};
+
+function requirementFor(faculty: string): RequirementTemplate {
+  const template = REQUIREMENT_TEMPLATES[faculty];
+  if (!template) throw new Error(`No AdmissionRequirement template for faculty "${faculty}"`);
+  return template;
+}
+
+// --- Course seed shape -----------------------------------------------------------------------
+interface CourseSeed {
+  name: string;
+  faculty: string;
+  merit: number | null;
+  catchment: number | null;
+  elds: number | null;
+  catchmentByState?: Record<string, number>;
+  eldsByState?: Record<string, number>;
+}
+
+function c(
+  name: string,
+  faculty: string,
+  merit: number | null,
+  catchment: number | null,
+  elds: number | null,
+  extra?: { catchmentByState?: Record<string, number>; eldsByState?: Record<string, number> },
+): CourseSeed {
+  return { name, faculty, merit, catchment, elds, ...extra };
+}
 
 interface UniversitySeed {
   code: string;
@@ -40,284 +147,431 @@ interface UniversitySeed {
     catchmentQuotaPercent: number;
     eldsQuotaPercent: number;
   };
-  courses: {
-    name: string;
-    faculty: string;
-    meritCutOff: number;
-    catchmentCutOff: number;
-    eldsCutOff: number;
-    catchmentCutOffByState?: Record<string, number>;
-    eldsCutOffByState?: Record<string, number>;
-    requirement: {
-      requiredUtmeSubjects: string[];
-      optionalUtmeSubjects: string[];
-      requiredOLevelSubjects: string[];
-      minimumCredits: number;
-    };
-  }[];
+  courses: CourseSeed[];
 }
 
-const SCIENCE_OLEVEL = ["English Language", "Mathematics", "Physics", "Chemistry", "Biology"];
-const LAW_OLEVEL = ["English Language", "Literature in English", "Government"];
-const COMMERCIAL_OLEVEL = ["English Language", "Mathematics", "Economics"];
-
 const UNIVERSITIES: UniversitySeed[] = [
+  // ============================================================================================
+  // University of Ibadan — Confirmed (ui.edu.ng, 2024/25 cycle). Formula Likely.
+  // Real finding: Catchment cut-off == Merit cut-off on every course (no discount at all) — only
+  // ELDS is discounted, and only on some courses. Catchment/ELDS state names remain Uncertain
+  // (the official page gives numbers only), so no by-state maps here — just flat merit/elds.
+  // ============================================================================================
   {
-    // Dossier: cut-offs Confirmed (ui.edu.ng, 2024/25 cycle — one cycle old). Formula Likely.
-    // Catchment = Merit everywhere at UI (no discount); only ELDS is discounted, unconfirmed states.
     code: "UI",
     name: "University of Ibadan",
     locationState: "Oyo",
     scoringPolicy: { utmeWeighting: 50, postUtmeWeighting: 50, oLevelWeighting: 0, utmeMaxScore: 400, postUtmeMaxScore: 100 },
     catchmentRule: {
-      catchmentStates: ["Oyo", "Ogun", "Osun", "Ondo", "Ekiti", "Kwara"], // Uncertain — UI's own page gives no state names
+      catchmentStates: ["Oyo", "Ogun", "Osun", "Ondo", "Ekiti", "Kwara"],
       eldsStates: NATIONAL_ELDS_STATES,
       meritQuotaPercent: 45,
       catchmentQuotaPercent: 35,
       eldsQuotaPercent: 20,
     },
     courses: [
-      {
-        name: "Medicine and Surgery",
-        faculty: "Clinical Sciences",
-        meritCutOff: 78.125,
-        catchmentCutOff: 78.125, // Confirmed finding: Catch === Merit at UI
-        eldsCutOff: 76.25,
-        requirement: { requiredUtmeSubjects: ["Biology", "Chemistry", "Physics"], optionalUtmeSubjects: ["Mathematics"], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Law",
-        faculty: "Law",
-        meritCutOff: 67.25,
-        catchmentCutOff: 67.25,
-        eldsCutOff: 66.75,
-        requirement: { requiredUtmeSubjects: ["Literature in English", "Government"], optionalUtmeSubjects: ["History", "Economics"], requiredOLevelSubjects: LAW_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Computer Science",
-        faculty: "Science",
-        meritCutOff: 71,
-        catchmentCutOff: 71,
-        eldsCutOff: 60.875,
-        requirement: { requiredUtmeSubjects: ["Mathematics", "Physics"], optionalUtmeSubjects: ["Chemistry"], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
+      c("Medicine and Surgery", "Clinical Sciences", 78.125, 78.125, 76.25),
+      c("Dentistry", "Clinical Sciences", 69.125, 69.125, 63.625),
+      c("Nursing Science", "Clinical Sciences", 71.875, 71.875, 63.375),
+      c("Physiotherapy", "Clinical Sciences", 64.75, 64.75, 61.125),
+      c("Pharmacy", "Clinical Sciences", 68, 68, 65.625),
+      c("Law", "Law", 67.25, 67.25, 66.75),
+      c("Civil Engineering", "Engineering & Technology", 61.625, 61.625, 53.625),
+      c("Mechanical Engineering", "Engineering & Technology", 68, 68, 55.125),
+      c("Electrical and Electronic Engineering", "Engineering & Technology", 67, 67, 50.25),
+      c("Agricultural and Environmental Engineering", "Engineering & Technology", 50, 50, 50),
+      c("Petroleum Engineering", "Engineering & Technology", 61.25, 61.25, 53.625),
+      c("English", "Arts", 57.125, 57.125, 55.25),
+      c("History", "Arts", 50, 50, 50),
+      c("Linguistics and African Languages", "Arts", 58.125, 58.125, 51.625),
+      c("Theatre Arts", "Arts", 55.75, 55.75, 53.125),
+      c("Religious Studies", "Arts", 50, 50, 50),
+      c("Music", "Arts", 50, 50, 50),
+      c("Economics", "Social & Management Sciences", 58.5, 58.5, 52.375),
+      c("Political Science", "Social & Management Sciences", 55.875, 55.875, 55.375),
+      c("Psychology", "Social & Management Sciences", 53.75, 53.75, 53.75),
+      c("Sociology", "Social & Management Sciences", 50.5, 50.5, 50.5),
+      c("Geography", "Social & Management Sciences", 50, 50, 50),
+      c("Chemistry", "Science", 50, 50, 50),
+      c("Physics", "Science", 51, 51, 51),
+      c("Microbiology", "Science", 52.75, 52.75, 52.125),
+      c("Computer Science", "Science", 71, 71, 60.875),
+      c("Mathematics", "Science", 52, 52, 52),
+      c("Statistics", "Science", 50, 50, 50),
+      c("Botany", "Science", 50, 50, 50),
+      c("Agricultural Economics", "Agriculture", 50.375, 50.375, 50.375),
+      c("Crop and Horticultural Sciences", "Agriculture", 50, 50, 50),
+      c("Animal Science", "Agriculture", 50, 50, 50),
+      c("Crop Protection and Environmental Biology", "Agriculture", 50, 50, 50),
+      c("Aquaculture and Fisheries Management", "Agriculture", 50, 50, 50),
+      c("Forest Resources Management", "Agriculture", 50, 50, 50),
     ],
   },
+
+  // ============================================================================================
+  // University of Lagos — Confirmed (unilag.edu.ng, 3 Oct 2025, current 2025/26 cycle).
+  // Catchment states Confirmed (Ekiti/Lagos/Ogun/Ondo/Osun/Oyo); per-state figures only exist in
+  // the dossier for 5 sample courses (Medicine, Law, Computer Science, Accounting, Civil
+  // Engineering) — the other 30 courses get only their single Merit figure, catchment/ELDS null.
+  // ELDS unconfirmed for UNILAG entirely (the official page never mentions it) — null everywhere.
+  // ============================================================================================
   {
-    // Dossier: cut-offs Confirmed (unilag.edu.ng, 2025/26 — current cycle). Formula Likely.
-    // Real per-state catchment cut-offs; ELDS not addressed by UNILAG's own source.
     code: "UNILAG",
     name: "University of Lagos",
     locationState: "Lagos",
     scoringPolicy: { utmeWeighting: 50, postUtmeWeighting: 30, oLevelWeighting: 20, utmeMaxScore: 400, postUtmeMaxScore: 100 },
     catchmentRule: {
-      catchmentStates: ["Ekiti", "Lagos", "Ogun", "Ondo", "Osun", "Oyo"], // Confirmed
-      eldsStates: NATIONAL_ELDS_STATES, // Uncertain for UNILAG specifically
+      catchmentStates: ["Ekiti", "Lagos", "Ogun", "Ondo", "Osun", "Oyo"],
+      eldsStates: NATIONAL_ELDS_STATES,
       meritQuotaPercent: 45,
       catchmentQuotaPercent: 35,
       eldsQuotaPercent: 20,
     },
     courses: [
-      {
-        name: "Medicine and Surgery",
-        faculty: "Clinical Sciences",
-        meritCutOff: 85.025,
-        catchmentCutOff: 79.75, // fallback shown = Lagos figure; real per-state map below is authoritative
-        eldsCutOff: 79.75,
-        catchmentCutOffByState: { Ekiti: 79.975, Lagos: 79.75, Ogun: 83.8, Ondo: 81.325, Osun: 81.775, Oyo: 81.575 },
-        requirement: { requiredUtmeSubjects: ["Biology", "Chemistry", "Physics"], optionalUtmeSubjects: ["Mathematics"], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Law",
-        faculty: "Law",
-        meritCutOff: 78.225,
-        catchmentCutOff: 75.9,
-        eldsCutOff: 75.9,
-        catchmentCutOffByState: { Ekiti: 73.625, Lagos: 75.9, Ogun: 76.55, Ondo: 75.75, Osun: 76.35, Oyo: 74.525 },
-        requirement: { requiredUtmeSubjects: ["Literature in English", "Government"], optionalUtmeSubjects: ["History", "Economics"], requiredOLevelSubjects: LAW_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Computer Science",
-        faculty: "Science",
-        meritCutOff: 83.425,
-        catchmentCutOff: 79.6,
-        eldsCutOff: 79.6,
-        catchmentCutOffByState: { Ekiti: 80.125, Lagos: 79.6, Ogun: 82.025, Ondo: 77.5, Osun: 79.2, Oyo: 78.1 },
-        requirement: { requiredUtmeSubjects: ["Mathematics", "Physics"], optionalUtmeSubjects: ["Chemistry"], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
+      c("Medicine and Surgery", "Clinical Sciences", 85.025, 79.75, null, {
+        catchmentByState: { Ekiti: 79.975, Lagos: 79.75, Ogun: 83.8, Ondo: 81.325, Osun: 81.775, Oyo: 81.575 },
+      }),
+      c("Dentistry and Dental Surgery", "Clinical Sciences", 76.65, null, null),
+      c("Nursing Science", "Clinical Sciences", 79.8, null, null),
+      c("Physiotherapy", "Clinical Sciences", 74.725, null, null),
+      c("Medical Laboratory Science", "Clinical Sciences", 74.375, null, null),
+      c("Pharmacy", "Clinical Sciences", 76.4, null, null),
+      c("Law", "Law", 78.225, 75.9, null, {
+        catchmentByState: { Ekiti: 73.625, Lagos: 75.9, Ogun: 76.55, Ondo: 75.75, Osun: 76.35, Oyo: 74.525 },
+      }),
+      c("Civil Engineering", "Engineering & Technology", 75.625, 74.5, null, {
+        catchmentByState: { Ekiti: 65.525, Lagos: 74.5, Ogun: 72.075, Ondo: 65.575, Osun: 72.375, Oyo: 71.05 },
+      }),
+      c("Mechanical Engineering", "Engineering & Technology", 78.525, null, null),
+      c("Electrical and Electronics Engineering", "Engineering & Technology", 79.5, null, null),
+      c("Chemical Engineering", "Engineering & Technology", 72.8, null, null),
+      c("Surveying and Geoinformatics Engineering", "Engineering & Technology", 58.125, null, null),
+      c("Metallurgical and Materials Engineering", "Engineering & Technology", 59.8, null, null),
+      c("English", "Arts", 68.175, null, null),
+      c("History and Strategic Studies", "Arts", 70.725, null, null),
+      c("Philosophy", "Arts", 66.075, null, null),
+      c("Linguistics, African and Asian Studies", "Arts", 72.55, null, null),
+      c("Religious Studies", "Arts", 54.625, null, null),
+      c("European Languages and Integrated Studies", "Arts", 60.225, null, null),
+      c("Accounting", "Social & Management Sciences", 75.7, 71.4, null, {
+        catchmentByState: { Ekiti: 69.475, Lagos: 71.4, Ogun: 73.825, Ondo: 68.8, Osun: 72.325, Oyo: 71 },
+      }),
+      c("Business Administration", "Social & Management Sciences", 69.3, null, null),
+      c("Actuarial Science and Insurance", "Social & Management Sciences", 64.925, null, null),
+      c("Banking and Finance", "Social & Management Sciences", 70.35, null, null),
+      c("Industrial Relations and Personnel Management", "Social & Management Sciences", 60.775, null, null),
+      c("Economics", "Social & Management Sciences", 73.475, null, null),
+      c("Psychology", "Social & Management Sciences", 69.7, null, null),
+      c("Political Science", "Social & Management Sciences", 68.15, null, null),
+      c("Computer Science", "Science", 83.425, 79.6, null, {
+        catchmentByState: { Ekiti: 80.125, Lagos: 79.6, Ogun: 82.025, Ondo: 77.5, Osun: 79.2, Oyo: 78.1 },
+      }),
+      c("Physics", "Science", 60.25, null, null),
+      c("Chemistry", "Science", 59.5, null, null),
+      c("Mathematics", "Science", 63.675, null, null),
+      c("Biochemistry", "Science", 69.4, null, null),
+      c("Botany", "Science", 51.45, null, null),
+      c("Zoology", "Science", 57.25, null, null),
+      c("Marine Sciences / Marine Biology", "Science", 55.45, null, null),
     ],
   },
+
+  // ============================================================================================
+  // Obafemi Awolowo University — Confirmed, but 2023/24 cycle (not 2025/26). All 35 courses have
+  // rich catchment/ELDS-by-state detail from OAU's own per-faculty documents. Catchment states
+  // Confirmed (Ekiti/Lagos/Ogun/Ondo/Osun/Oyo) across all 8 documents. ELDS is per-state for
+  // College of Health Sciences/Faculty of Pharmacy/Faculty of Law, and a single flat figure for
+  // Technology/Arts/Social Sciences/Science/Agriculture/Administration.
+  // ============================================================================================
   {
-    // Dossier: cut-offs Confirmed but for the 2023/24 cycle (not 2025/26). Formula Likely
-    // (community-sourced 50% JAMB + 40% Post-UTME + 10% O'Level).
     code: "OAU",
     name: "Obafemi Awolowo University",
     locationState: "Osun",
     scoringPolicy: { utmeWeighting: 50, postUtmeWeighting: 40, oLevelWeighting: 10, utmeMaxScore: 400, postUtmeMaxScore: 40 },
     catchmentRule: {
-      catchmentStates: ["Ekiti", "Lagos", "Ogun", "Ondo", "Osun", "Oyo"], // Confirmed
-      eldsStates: NATIONAL_ELDS_STATES, // real sample found (Kogi, Kano, Kwara, Ebonyi, Cross River, Benue, Nasarawa, Rivers) — not proven complete
+      catchmentStates: ["Ekiti", "Lagos", "Ogun", "Ondo", "Osun", "Oyo"],
+      eldsStates: NATIONAL_ELDS_STATES,
       meritQuotaPercent: 45,
       catchmentQuotaPercent: 35,
       eldsQuotaPercent: 20,
     },
     courses: [
-      {
-        name: "Medicine and Surgery",
-        faculty: "Clinical Sciences",
-        meritCutOff: 84.325,
-        catchmentCutOff: 82.175,
-        eldsCutOff: 77.575,
-        catchmentCutOffByState: { Osun: 83.2, Ogun: 82.325, Ekiti: 82.175, Ondo: 82.175, Oyo: 80.5, Lagos: 75.75 },
-        eldsCutOffByState: { Kwara: 77.575, Kogi: 79.05, Ebonyi: 75.1 },
-        requirement: { requiredUtmeSubjects: ["Biology", "Chemistry", "Physics"], optionalUtmeSubjects: ["Mathematics"], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Law",
-        faculty: "Law",
-        meritCutOff: 75.325,
-        catchmentCutOff: 73.25,
-        eldsCutOff: 73.8,
-        catchmentCutOffByState: { Oyo: 73.95, Osun: 74.725, Ogun: 73.25, Ondo: 73.775, Ekiti: 73, Lagos: 69 },
-        eldsCutOffByState: { Benue: 73.325, "Cross River": 59.3, Ebonyi: 67.025, Kwara: 73.8, Kogi: 74.25, Nasarawa: 56.425, Rivers: 64.325 },
-        requirement: { requiredUtmeSubjects: ["Literature in English", "Government"], optionalUtmeSubjects: ["History", "Economics"], requiredOLevelSubjects: LAW_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Civil Engineering",
-        faculty: "Engineering & Technology",
-        meritCutOff: 70.85,
-        catchmentCutOff: 62.22,
-        eldsCutOff: 59.0,
-        catchmentCutOffByState: { Ekiti: 58.85, Lagos: 62.82, Ogun: 62.22, Ondo: 54.8, Osun: 69.0, Oyo: 69.07 },
-        requirement: { requiredUtmeSubjects: ["Mathematics", "Physics", "Chemistry"], optionalUtmeSubjects: [], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
+      // College of Health Sciences
+      c("Medicine and Surgery", "Clinical Sciences", 84.325, 82.175, null, {
+        catchmentByState: { Osun: 83.2, Ogun: 82.325, Ekiti: 82.175, Ondo: 82.175, Oyo: 80.5, Lagos: 75.75 },
+        eldsByState: { Kwara: 77.575, Kogi: 79.05, Ebonyi: 75.1 },
+      }),
+      c("Dentistry / Dental Surgery", "Clinical Sciences", 80.125, 76.125, null, {
+        catchmentByState: { Osun: 76.125, Ogun: 78.85, Ekiti: 72.725, Ondo: 76.45, Oyo: 78.45, Lagos: 75.25 },
+        eldsByState: { Kwara: 71.35 },
+      }),
+      c("Nursing Science", "Clinical Sciences", 79.225, 77.1, null, {
+        catchmentByState: { Osun: 77.525, Ogun: 77.1, Ekiti: 76, Ondo: 76.55, Oyo: 76.725, Lagos: 74.25 },
+        eldsByState: { Kogi: 70.2, "Cross River": 70.9, Kwara: 70.725, Ebonyi: 73.225, Benue: 70.775 },
+      }),
+      c("Medical Rehabilitation (Physiotherapy/OT)", "Clinical Sciences", 73.5, 70.375, null, {
+        catchmentByState: { Osun: 73.025, Ogun: 70.375, Ekiti: 71.05, Ondo: 69.65, Oyo: 72.075, Lagos: 67.9 },
+        eldsByState: { Kogi: 70.775, Kano: 72.525, Kwara: 67.775, Ebonyi: 71.1 },
+      }),
+      // Faculty of Pharmacy
+      c("Pharmacy", "Clinical Sciences", 76.15, 73.9, null, {
+        catchmentByState: { Ekiti: 72.075, Lagos: 70.45, Ogun: 73.9, Ondo: 72.425, Osun: 74.9, Oyo: 73.9 },
+        eldsByState: { Benue: 69.175, "Cross River": 69.325, Ebonyi: 68.375, Kaduna: 57.125, Kogi: 69.625, Kwara: 69.15 },
+      }),
+      // Faculty of Law
+      c("Law", "Law", 75.325, 73.25, null, {
+        catchmentByState: { Oyo: 73.95, Osun: 74.725, Ogun: 73.25, Ondo: 73.775, Ekiti: 73, Lagos: 69 },
+        eldsByState: { Benue: 73.325, "Cross River": 59.3, Ebonyi: 67.025, Kwara: 73.8, Kogi: 74.25, Nasarawa: 56.425, Rivers: 64.325 },
+      }),
+      // Faculty of Technology
+      c("Civil Engineering", "Engineering & Technology", 70.85, 62.22, 59.0, {
+        catchmentByState: { Ekiti: 58.85, Lagos: 62.82, Ogun: 62.22, Ondo: 54.8, Osun: 69.0, Oyo: 69.07 },
+      }),
+      c("Mechanical Engineering", "Engineering & Technology", 72.07, 66.37, 56.0, {
+        catchmentByState: { Ekiti: 62.6, Lagos: 54.87, Ogun: 66.37, Ondo: 53.92, Osun: 70.65, Oyo: 66.62 },
+      }),
+      c("Electronic and Electrical Engineering", "Engineering & Technology", 70.87, 66.72, 59.57, {
+        catchmentByState: { Ekiti: 57.15, Lagos: 61.37, Ogun: 66.72, Ondo: 52.3, Osun: 68.15, Oyo: 68.07 },
+      }),
+      c("Chemical Engineering", "Engineering & Technology", 68.28, 61.15, 59.17, {
+        catchmentByState: { Ekiti: 63.17, Lagos: 63.17, Ogun: 61.15, Ondo: 62.02, Osun: 65.72, Oyo: 57.95 },
+      }),
+      c("Agricultural and Environmental Engineering", "Engineering & Technology", 53.12, 50.0, 50.0, {
+        catchmentByState: { Ekiti: 50.0, Lagos: 50.0, Ogun: 50.0, Ondo: 50.0, Osun: 50.0, Oyo: 50.0 },
+      }),
+      // Faculty of Arts (catchment column order Likely Ekiti/Lagos/Ogun/Ondo/Osun/Oyo, not independently confirmed)
+      c("English Language", "Arts", 64.825, 56.325, 50, {
+        catchmentByState: { Ekiti: 63.225, Lagos: 60.675, Ogun: 56.325, Ondo: 56.45, Osun: 58.025, Oyo: 59.325 },
+      }),
+      c("History", "Arts", 62.625, 60.125, 50, {
+        catchmentByState: { Ekiti: 57.475, Lagos: 54.2, Ogun: 60.125, Ondo: 50, Osun: 61.325, Oyo: 50 },
+      }),
+      c("Linguistics and African Languages", "Arts", 65.725, 56.9, 50, {
+        catchmentByState: { Ekiti: 65, Lagos: 63.7, Ogun: 56.9, Ondo: 57, Osun: 58.55, Oyo: 59.4 },
+      }),
+      c("Philosophy", "Arts", 51.4, 50, 50, {
+        catchmentByState: { Ekiti: 50, Lagos: 50, Ogun: 50, Ondo: 50, Osun: 50, Oyo: 50 },
+      }),
+      c("Religious Studies", "Arts", 62.05, 50, 50, {
+        catchmentByState: { Ekiti: 50, Lagos: 50, Ogun: 50, Ondo: 50, Osun: 50, Oyo: 50 },
+      }),
+      c("Dramatic Arts", "Arts", 65.8, 63.4, 50, {
+        catchmentByState: { Ekiti: 64.375, Lagos: 61.925, Ogun: 63.4, Ondo: 51.525, Osun: 62.85, Oyo: 53.275 },
+      }),
+      c("Music", "Arts", 51.125, 50, 50, {
+        catchmentByState: { Ekiti: 50, Lagos: 50, Ogun: 50, Ondo: 50, Osun: 50, Oyo: 50 },
+      }),
+      // Faculty of Social Sciences
+      c("Economics", "Social & Management Sciences", 65.63, 61.43, 51.93, {
+        catchmentByState: { Osun: 63.0, Oyo: 59.8, Ekiti: 55.8, Ondo: 53.33, Lagos: 57.05, Ogun: 61.43 },
+      }),
+      c("Political Science", "Social & Management Sciences", 65.35, 61.15, 54.5, {
+        catchmentByState: { Osun: 62.38, Oyo: 62.93, Ekiti: 58.35, Ondo: 58.15, Lagos: 64.15, Ogun: 61.15 },
+      }),
+      c("Sociology and Anthropology", "Social & Management Sciences", 52.53, 50, 50, {
+        catchmentByState: { Osun: 50, Oyo: 50, Ekiti: 50, Ondo: 50, Lagos: 50, Ogun: 50 },
+      }),
+      // Faculty of Administration (real home of Accounting/Business Administration, per dossier)
+      c("Accounting", "Social & Management Sciences", 71.67, 69.37, 51.77, {
+        catchmentByState: { Ekiti: 68.57, Oyo: 70.57, Ogun: 69.37, Osun: 70.57, Ondo: 61.17, Lagos: 63.37 },
+      }),
+      c("Business Administration", "Social & Management Sciences", 65.5, 61.57, 51.57, {
+        catchmentByState: { Ekiti: 59.27, Oyo: 62.0, Ogun: 61.57, Osun: 62.75, Ondo: 56.52, Lagos: 52.12 },
+      }),
+      // Faculty of Science (all courses sit at the 50 floor except Microbiology)
+      c("Chemistry", "Science", 50.0, 50.0, 50.0),
+      c("Physics", "Science", 50.0, 50.0, 50.0),
+      c("Microbiology", "Science", 62.07, 52.4, 53.3, {
+        catchmentByState: { Osun: 54.17, Oyo: 52.52, Ondo: 52.37, Ogun: 52.4, Lagos: 50.0, Ekiti: 52.82 },
+      }),
+      c("Zoology", "Science", 50.0, 50.0, 50.0),
+      c("Mathematics", "Science", 50.0, 50.0, 50.0),
+      c("Botany", "Science", 50.0, 50.0, 50.0),
+      c("Geology", "Science", 50.0, 50.0, 50.0),
+      // Faculty of Agriculture (every course sits at the 50 catchment floor this cycle)
+      c("Agricultural Economics", "Agriculture", 51.93, 50.0, 50.0),
+      c("Animal Sciences", "Agriculture", 50.4, 50.0, 50.0),
+      c("Crop Production and Protection", "Agriculture", 56.08, 50.0, 50.0),
+      c("Soil Science and Land Resources Management", "Agriculture", 56.38, 50.0, 50.0),
+      c("Agricultural Extension and Rural Development", "Agriculture", 52.33, 50.0, 50.0),
     ],
   },
+
+  // ============================================================================================
+  // FUTA — Likely (Campusdesk, 2026/27 cycle; not futa.edu.ng itself). Only the 0–100 Aggregate
+  // column is used (see SCALE NOTE) — the raw Est. JAMB column is not stored. "Law" and "Arts"
+  // are excluded entirely: the dossier explicitly states no such faculty exists at FUTA.
+  // Catchment/ELDS: states are Uncertain (Ondo/Ekiti/Osun/Oyo/Lagos guess) and NO cut-off numbers
+  // are published anywhere for either — null for every course.
+  // ============================================================================================
   {
-    // Dossier: Likely throughout — no official FUTA page found, cross-confirmed by two aggregators
-    // (2026/27 cycle). General JAMB floor 180, distinct from the departmental screening cut-offs below.
     code: "FUTA",
     name: "Federal University of Technology, Akure",
     locationState: "Ondo",
     scoringPolicy: { utmeWeighting: 75, postUtmeWeighting: 0, oLevelWeighting: 25, utmeMaxScore: 400, postUtmeMaxScore: 100 },
     catchmentRule: {
-      catchmentStates: ["Ondo", "Ekiti", "Osun", "Oyo", "Lagos"], // Uncertain, aggregator-only
+      catchmentStates: ["Ondo", "Ekiti", "Osun", "Oyo", "Lagos"],
       eldsStates: NATIONAL_ELDS_STATES,
       meritQuotaPercent: 45,
       catchmentQuotaPercent: 35,
       eldsQuotaPercent: 20,
     },
     courses: [
-      {
-        name: "Civil Engineering",
-        faculty: "Engineering & Technology",
-        meritCutOff: 71.87,
-        catchmentCutOff: 68,
-        eldsCutOff: 65,
-        requirement: { requiredUtmeSubjects: ["Mathematics", "Physics", "Chemistry"], optionalUtmeSubjects: [], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Electrical and Electronics Engineering",
-        faculty: "Engineering & Technology",
-        meritCutOff: 74.37,
-        catchmentCutOff: 70,
-        eldsCutOff: 67,
-        requirement: { requiredUtmeSubjects: ["Mathematics", "Physics", "Chemistry"], optionalUtmeSubjects: [], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Computer Science",
-        faculty: "Science",
-        meritCutOff: 69,
-        catchmentCutOff: 65,
-        eldsCutOff: 62,
-        requirement: { requiredUtmeSubjects: ["Mathematics", "Physics"], optionalUtmeSubjects: ["Chemistry"], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
+      c("Medicine and Surgery (MBBS)", "Clinical Sciences", null, null, null),
+      c("Nursing Science", "Clinical Sciences", 75.0, null, null),
+      c("Human Anatomy", "Clinical Sciences", 59.5, null, null),
+      c("Physiology", "Clinical Sciences", 57.25, null, null),
+      c("Civil and Environmental Engineering", "Engineering & Technology", 71.87, null, null),
+      c("Mechanical Engineering", "Engineering & Technology", 73.75, null, null),
+      c("Electrical/Electronics Engineering", "Engineering & Technology", 74.37, null, null),
+      c("Chemical Engineering", "Engineering & Technology", null, null, null),
+      c("Agricultural and Environmental Engineering", "Engineering & Technology", 55.12, null, null),
+      c("Computer Engineering", "Engineering & Technology", 69.62, null, null),
+      c("Industrial and Production Engineering", "Engineering & Technology", 47.5, null, null),
+      c("Metallurgical and Materials Engineering", "Engineering & Technology", 54.87, null, null),
+      c("Mining Engineering", "Engineering & Technology", 54.75, null, null),
+      c("Mechatronics Engineering", "Engineering & Technology", null, null, null),
+      c("Business Information Technology", "Social & Management Sciences", null, null, null),
+      c("Entrepreneurship Management Technology", "Social & Management Sciences", null, null, null),
+      c("Logistics and Transport Technology", "Social & Management Sciences", null, null, null),
+      c("Project Management Technology", "Social & Management Sciences", null, null, null),
+      c("Procurement Management Technology", "Social & Management Sciences", null, null, null),
+      c("Physics", "Science", 47.5, null, null),
+      c("Chemistry", "Science", 47.5, null, null),
+      c("Mathematics", "Science", 59, null, null),
+      c("Statistics", "Science", 47.5, null, null),
+      c("Biochemistry", "Science", 63.37, null, null),
+      c("Biology", "Science", 47.5, null, null),
+      c("Microbiology", "Science", 63, null, null),
+      c("Biotechnology", "Science", 47.5, null, null),
+      c("Computer Science", "Science", 69, null, null),
+      c("Cybersecurity", "Science", 63.75, null, null),
+      c("Animal Production and Health", "Agriculture", 55.37, null, null),
+      c("Crop, Soil and Pest Management", "Agriculture", 47.5, null, null),
+      c("Food Science and Technology", "Agriculture", 58.12, null, null),
+      c("Forestry and Wood Technology", "Agriculture", 47.5, null, null),
+      c("Agricultural Extension and Communication Technology", "Agriculture", 47.5, null, null),
+      c("Agricultural and Resource Economics", "Agriculture", 47.5, null, null),
     ],
   },
+
+  // ============================================================================================
+  // FUNAAB — cut-offs Confirmed (funaab.edu.ng, 2026/27 portal), formula Confirmed
+  // (helpdesk.funaab.edu.ng). SCALE MISMATCH: these are raw 0–400 JAMB floors, not the 0–100
+  // aggregate the Confirmed formula computes — see the SCALE NOTE at the top of this file.
+  // "Law" and "Arts" excluded: the dossier states neither faculty exists at FUNAAB.
+  // Catchment states Confirmed (Ogun/Oyo/Osun/Ondo/Ekiti/Lagos); no catchment/ELDS cut-off
+  // numbers are published anywhere — null for every course.
+  // ============================================================================================
   {
-    // Dossier: cut-offs Confirmed (FUNAAB's own live admission portal). Formula Confirmed
-    // (helpdesk.funaab.edu.ng) — the ONLY formula in the dossier read directly off an official
-    // page: a straight 50/50 UTME/O'Level split, no Post-UTME term at all.
-    // Cut-offs below are on FUNAAB's own raw JAMB scale (0-400), not a 0-100 aggregate.
     code: "FUNAAB",
     name: "Federal University of Agriculture, Abeokuta",
     locationState: "Ogun",
     scoringPolicy: { utmeWeighting: 50, postUtmeWeighting: 0, oLevelWeighting: 50, utmeMaxScore: 400, postUtmeMaxScore: 100 },
     catchmentRule: {
-      catchmentStates: ["Ogun", "Oyo", "Osun", "Ondo", "Ekiti", "Lagos"], // Confirmed, verbatim from funaab.edu.ng
+      catchmentStates: ["Ogun", "Oyo", "Osun", "Ondo", "Ekiti", "Lagos"],
       eldsStates: NATIONAL_ELDS_STATES,
       meritQuotaPercent: 45,
       catchmentQuotaPercent: 35,
       eldsQuotaPercent: 20,
     },
     courses: [
-      {
-        name: "Veterinary Medicine",
-        faculty: "Clinical Sciences",
-        meritCutOff: 200,
-        catchmentCutOff: 200,
-        eldsCutOff: 160,
-        requirement: { requiredUtmeSubjects: ["Biology", "Chemistry", "Physics"], optionalUtmeSubjects: ["Mathematics"], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Accounting",
-        faculty: "Social & Management Sciences",
-        meritCutOff: 200,
-        catchmentCutOff: 200,
-        eldsCutOff: 160,
-        requirement: { requiredUtmeSubjects: ["Mathematics", "Economics"], optionalUtmeSubjects: ["Commerce"], requiredOLevelSubjects: COMMERCIAL_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Computer Science",
-        faculty: "Science",
-        meritCutOff: 200,
-        catchmentCutOff: 200,
-        eldsCutOff: 160,
-        requirement: { requiredUtmeSubjects: ["Mathematics", "Physics"], optionalUtmeSubjects: ["Chemistry"], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
+      c("Veterinary Medicine (DVM)", "Clinical Sciences", 200, null, null),
+      c("Agricultural Engineering", "Engineering & Technology", 200, null, null),
+      c("Civil Engineering", "Engineering & Technology", 200, null, null),
+      c("Electrical and Electronics Engineering", "Engineering & Technology", 200, null, null),
+      c("Mechanical Engineering", "Engineering & Technology", 200, null, null),
+      c("Mechatronic Engineering", "Engineering & Technology", 200, null, null),
+      c("Agricultural Economics and Farm Management", "Social & Management Sciences", 160, null, null),
+      c("Agricultural Extension and Rural Development", "Social & Management Sciences", 160, null, null),
+      c("Agricultural Administration", "Social & Management Sciences", 160, null, null),
+      c("Cooperative Studies", "Social & Management Sciences", 160, null, null),
+      c("Development Studies", "Social & Management Sciences", 160, null, null),
+      c("Accounting", "Social & Management Sciences", 200, null, null),
+      c("Banking and Finance", "Social & Management Sciences", 200, null, null),
+      c("Business Administration", "Social & Management Sciences", 200, null, null),
+      c("Economics", "Social & Management Sciences", 200, null, null),
+      c("Computer Science", "Science", 200, null, null),
+      c("Physics", "Science", 200, null, null),
+      c("Chemistry", "Science", 180, null, null),
+      c("Biochemistry", "Science", 200, null, null),
+      c("Microbiology", "Science", 200, null, null),
+      c("Mathematics", "Science", 200, null, null),
+      c("Statistics", "Science", 200, null, null),
+      c("Cyber Security", "Science", 200, null, null),
+      c("Data Science", "Science", 200, null, null),
+      c("Information Technology", "Science", 200, null, null),
+      c("Software Engineering", "Science", 200, null, null),
+      c("Animal Production and Health", "Agriculture", 160, null, null),
+      c("Crop Protection", "Agriculture", 160, null, null),
+      c("Soil Science and Land Management", "Agriculture", 160, null, null),
+      c("Aquaculture and Fisheries Management", "Agriculture", 160, null, null),
+      c("Forest Resource Management", "Agriculture", 160, null, null),
+      c("Animal Breeding and Genetics", "Agriculture", 160, null, null),
+      c("Plant Breeding and Seed Technology", "Agriculture", 160, null, null),
+      c("Horticulture", "Agriculture", 160, null, null),
+      c("Wildlife and Eco-tourism Management", "Agriculture", 160, null, null),
     ],
   },
+
+  // ============================================================================================
+  // FUOYE — UTME floors Likely, cross-confirmed against FUOYE's own 2026/27 admission-requirements
+  // document for most courses; only the 0–100 Aggregate column is used here (see SCALE NOTE).
+  // "Law" is seeded (a real number, 150-floor era aggregate is unknown → null) but flagged: the
+  // dossier raises a genuine open question over whether FUOYE's Law faculty exists at all, since
+  // it's absent from an otherwise-exhaustive 14-faculty admission-requirements document.
+  // Catchment states Likely (Ekiti/Ondo/Osun/Oyo); no catchment/ELDS cut-off numbers published —
+  // null for every course.
+  // ============================================================================================
   {
-    // Dossier: UTME floors Likely, cross-confirmed against FUOYE's own 2026/27 admission-requirements
-    // document (current cycle) for most courses. Formula Likely. Law's real existence at FUOYE is an
-    // OPEN QUESTION — absent from that otherwise-exhaustive 14-faculty document; seeded here anyway
-    // as a placeholder pending verification (see docs/jamb-data-dossier.md).
     code: "FUOYE",
     name: "Federal University Oye-Ekiti",
     locationState: "Ekiti",
     scoringPolicy: { utmeWeighting: 60, postUtmeWeighting: 0, oLevelWeighting: 30, utmeMaxScore: 400, postUtmeMaxScore: 100 },
     catchmentRule: {
-      catchmentStates: ["Ekiti", "Ondo", "Osun", "Oyo"], // Likely
+      catchmentStates: ["Ekiti", "Ondo", "Osun", "Oyo"],
       eldsStates: NATIONAL_ELDS_STATES,
       meritQuotaPercent: 45,
       catchmentQuotaPercent: 35,
       eldsQuotaPercent: 20,
     },
     courses: [
-      {
-        name: "Computer Science",
-        faculty: "Science",
-        meritCutOff: 61.95,
-        catchmentCutOff: 58,
-        eldsCutOff: 55,
-        requirement: { requiredUtmeSubjects: ["Mathematics", "Physics", "Chemistry"], optionalUtmeSubjects: [], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Civil Engineering",
-        faculty: "Engineering & Technology",
-        meritCutOff: 65.0,
-        catchmentCutOff: 61,
-        eldsCutOff: 58,
-        requirement: { requiredUtmeSubjects: ["Mathematics", "Chemistry", "Physics"], optionalUtmeSubjects: [], requiredOLevelSubjects: SCIENCE_OLEVEL, minimumCredits: 5 },
-      },
-      {
-        name: "Law", // OPEN QUESTION — see comment above
-        faculty: "Law",
-        meritCutOff: 60,
-        catchmentCutOff: 56,
-        eldsCutOff: 53,
-        requirement: { requiredUtmeSubjects: ["Literature in English", "Government"], optionalUtmeSubjects: ["History"], requiredOLevelSubjects: LAW_OLEVEL, minimumCredits: 5 },
-      },
+      c("Anatomy", "Clinical Sciences", 63.3, null, null),
+      c("Physiology", "Clinical Sciences", 61.5, null, null),
+      c("Nursing Science", "Clinical Sciences", 74.6, null, null),
+      c("Medical Laboratory Science", "Clinical Sciences", 72.3, null, null),
+      c("Radiography and Radiation Science", "Clinical Sciences", 71.3, null, null),
+      // OPEN QUESTION: FUOYE Law's existence is unconfirmed — see dossier. Aggregate cut-off unknown.
+      c("Law", "Law", null, null, null),
+      c("Civil Engineering", "Engineering & Technology", 65.0, null, null),
+      c("Mechanical Engineering", "Engineering & Technology", 65.0, null, null),
+      c("Electrical and Electronic Engineering", "Engineering & Technology", 63.3, null, null),
+      c("Computer Engineering", "Engineering & Technology", 64.3, null, null),
+      c("Mechatronics Engineering", "Engineering & Technology", 65.0, null, null),
+      c("English and Literary Studies", "Arts", 66.3, null, null),
+      c("History and International Studies", "Arts", 67.8, null, null),
+      c("Linguistics and Languages", "Arts", 65.3, null, null),
+      c("Philosophy", "Arts", 57.2, null, null),
+      c("Religious Studies", "Arts", 55.0, null, null),
+      c("Economics", "Social & Management Sciences", 63.75, null, null),
+      c("Political Science", "Social & Management Sciences", 62.5, null, null),
+      c("Accounting", "Social & Management Sciences", 65.15, null, null),
+      c("Business Administration", "Social & Management Sciences", 65.45, null, null),
+      c("Mass Communication", "Social & Management Sciences", 66.3, null, null),
+      c("Computer Science", "Science", 61.95, null, null),
+      c("Biochemistry", "Science", 64.4, null, null),
+      c("Microbiology", "Science", 65.75, null, null),
+      c("Physics", "Science", 56.5, null, null),
+      c("Chemistry", "Science", 62.5, null, null),
+      c("Mathematics", "Science", 55.5, null, null),
+      c("Statistics", "Science", 54.5, null, null),
+      c("Animal Production and Health", "Agriculture", 57.7, null, null),
+      c("Crop Science and Horticulture", "Agriculture", 57.65, null, null),
+      c("Agricultural Economics and Extension", "Agriculture", 61.15, null, null),
+      c("Soil Science and Land Resources Management", "Agriculture", 56.65, null, null),
+      c("Fisheries and Aquaculture", "Agriculture", 57.15, null, null),
+      c("Food Science and Technology", "Agriculture", 60.9, null, null),
+      c("Water Resources Management and Agrometeorology", "Agriculture", 57.3, null, null),
     ],
   },
 ];
@@ -345,11 +599,11 @@ async function main() {
     for (const course of uni.courses) {
       const courseData = {
         faculty: course.faculty,
-        meritCutOff: course.meritCutOff,
-        catchmentCutOff: course.catchmentCutOff,
-        eldsCutOff: course.eldsCutOff,
-        catchmentCutOffByState: course.catchmentCutOffByState ?? undefined,
-        eldsCutOffByState: course.eldsCutOffByState ?? undefined,
+        meritCutOff: course.merit,
+        catchmentCutOff: course.catchment,
+        eldsCutOff: course.elds,
+        catchmentCutOffByState: course.catchmentByState ?? undefined,
+        eldsCutOffByState: course.eldsByState ?? undefined,
       };
 
       const courseRow = await prisma.course.upsert({
@@ -358,10 +612,11 @@ async function main() {
         create: { universityId: university.id, name: course.name, ...courseData },
       });
 
+      const requirement = requirementFor(course.faculty);
       await prisma.admissionRequirement.upsert({
         where: { courseId: courseRow.id },
-        update: course.requirement,
-        create: { courseId: courseRow.id, ...course.requirement },
+        update: requirement,
+        create: { courseId: courseRow.id, ...requirement },
       });
     }
 

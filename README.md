@@ -6,7 +6,7 @@ Being built stage by stage per [`docs/backend-implementation-plan.md`](https://g
 
 **Done so far:**
 - **Stage 0 — project scaffold.** Express app that boots, error envelope wired, health check.
-- **Stage 1 — data layer.** Postgres via Prisma. Schema mirrors `domain.ts` (`University`, `Course`, `AdmissionRequirement`, `ScoringPolicy`, `CatchmentRule`, `CandidateProfile`, `AssessmentReport`, `User`, `AdminLogEntry`, `EvaluationEvent`). Seed script loads all 6 universities plus a **starter subset of 18 real courses** (3 per university) sourced from `docs/jamb-data-dossier.md` — not the full 210-course catalog yet, see "What's not done yet" below.
+- **Stage 1 — data layer.** Postgres via Prisma. Schema mirrors `domain.ts` (`University`, `Course`, `AdmissionRequirement`, `ScoringPolicy`, `CatchmentRule`, `CandidateProfile`, `AssessmentReport`, `User`, `AdminLogEntry`, `EvaluationEvent`). Seed script loads all 6 universities and the **full 210-course catalog** (35 per university), transcribed directly from `docs/jamb-data-dossier.md` — see "Seed data" below for what's confirmed vs. genuinely unknown, and why `meritCutOff`/`catchmentCutOff`/`eldsCutOff` are nullable.
 - **Stage 2 — auth.** `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, JWT-based, bcrypt password hashing, `requireAuth`/`requireAdmin` middleware.
 - **Stage 3 — public catalog endpoints.** `GET /universities`, `/universities/:id/courses`, `/universities/:id/scoring-policy`, `/universities/:id/catchment-rule`, `/courses/:id/requirements` — all public, no auth. 404s via the standard envelope for unknown IDs.
 - **Stage 4 — candidate profile + the assessment engine.** `POST /candidates/profile`, `GET`/`PATCH /candidates/me`, `POST /eligibility/verify`, `/scoring/aggregate`, `/catchment/classify`, `/recommendations`, `/assessments`, `GET /assessments`, `/assessments/:id`. The engine (`src/modules/assessment/engine.ts`) is a straight port of the frontend's `src/mocks/engine.ts` onto Postgres — see "Assessment engine" below for the details worth knowing before touching it.
@@ -84,25 +84,39 @@ Async route handlers must be wrapped in `asyncHandler` (`src/lib/async-handler.t
 
 **`POST /assessments` is the one place a real, saved `CandidateProfile` is required** — it persists an `AssessmentReport` tied to the authenticated user's own profile (looked up server-side by `req.user.id`, never trusting the client-supplied `candidate.id` for that link), and 400s with a clear message if the user hasn't created one yet via `POST /candidates/profile`.
 
-**Deliberate deviations from the mock, both documented inline in the code:**
+**Deliberate deviations from the mock, all documented inline in the code:**
 - `POST /scoring/aggregate` 422s whenever `candidate.postUtmeScore === null`, matching the frontend's exact (slightly stale) API-layer rule — even for FUNAAB/FUTA/FUOYE, whose real formulas (per `docs/jamb-data-dossier.md`) don't actually have a Post-UTME component at all. Not fixed here; that's a frontend-contract inaccuracy, not something to unilaterally change server-side.
 - `POST /assessments` instead treats a null `postUtmeScore` as "can't score yet" and stores `score: null` — no error — exactly mirroring `src/lib/api/assessments.ts`'s mock behavior, which differs from the scoring endpoint's.
 - `computeAggregate`/`buildAssessmentContext` 400 if `targetCourseId`/`targetUniversityId` don't resolve to real, matching rows — the mock silently returned a zeroed-out result instead, which isn't a good look for a real API.
+- `computeAggregate`/`buildAssessmentContext` also 400 if the resolved cut-off itself is `null` (the dossier has no confirmed figure for that course/status — see "Seed data" below) — again, refusing clearly rather than silently comparing against 0. `recommendCourses` instead just skips courses with a `null` cut-off, since one missing figure shouldn't break the whole recommendation list.
 
 **Per-state catchment/ELDS cut-offs**: `resolveCutOff()` looks up the candidate's matched state in `Course.catchmentCutOffByState`/`eldsCutOffByState` before falling back to the flat `catchmentCutOff`/`eldsCutOff` — see "Data model notes" below.
 
 Every engine call is wrapped in `withEvaluationLog()` (`src/modules/assessment/evaluation-logger.ts`), writing an `EvaluationEvent` row (module, outcome, latency) as required by the implementation plan — this feeds the Stage 6 metrics dashboard.
 
+## Seed data
+
+`prisma/seed.ts` loads the **full 210-course catalog** (35 per university), transcribed directly from `docs/jamb-data-dossier.md` in the frontend repo. Every figure traces to that document — nothing here is invented. Read the seed script's own header comment before changing any number in it; the summary:
+
+- **`Course.meritCutOff` / `catchmentCutOff` / `eldsCutOff` are nullable.** Where the dossier has no confirmed figure for a course (marked "—" — e.g. FUTA's Chemical Engineering, several "estimate only" rows), the field is `null`, not a guessed number. **This is a deliberate deviation from the frontend's current `Course` type**, which declares these as non-nullable `number` — the frontend will need to handle `null` (or this dossier gap needs filling first) before wiring up real data end-to-end for the affected courses. `computeAggregate()`/`buildAssessmentContext()` throw a clear 400 (not a silent 0-comparison) when a candidate's resolved cut-off is `null`; `recommendCourses()` just skips those courses.
+- **Scale consistency**: `computeAggregate()` always produces a 0–100 aggregate, so cut-offs must be on that same scale to compare sensibly.
+  - UI, UNILAG, OAU: dossier gives a native 0–100 aggregate — used as-is.
+  - FUTA, FUOYE: dossier gives both a 0–100 aggregate and a separate raw-JAMB "estimated" figure — only the 0–100 aggregate is stored.
+  - **FUNAAB is a known, unresolved exception**: the dossier's only published cut-off is the raw 0–400 JAMB floor (160–200) — no 0–100 aggregate is published anywhere, even though FUNAAB's own Confirmed formula computes one internally. Seeded as published, which means `computeAggregate()` (capped at 100) can never clear a FUNAAB cut-off. Needs a real FUNAAB 0–100 figure — via Stage 5 admin CRUD, or further research — before FUNAAB assessments work correctly. Flagged loudly in the seed script; don't "fix" it by inventing a conversion factor.
+- **Excluded, not fabricated**: FUTA and FUNAAB's dossier tables include "Law"/"Arts" rows that just state those faculties don't exist — those two rows per university are not seeded as courses. FUOYE's Law *is* seeded (aggregate cut-off `null`) despite the dossier's open question over whether that faculty exists at all.
+- **`Course.catchmentCutOffByState` / `eldsCutOffByState`** (JSON) hold real per-state cut-off overrides for UNILAG (5 sample courses) and OAU (all 35 courses, from OAU's own faculty documents) — see the dossier's UNILAG/OAU sections for why a single flat number per course doesn't match what these universities actually publish. Falls back to `catchmentCutOff`/`eldsCutOff` when a state isn't present in the map.
+- **`AdmissionRequirement` uses one template per faculty** (`REQUIREMENT_TEMPLATES` in the seed script), not a hand-crafted subject list per course — the dossier documents a general per-stream O'Level/UTME rule rather than an exact combination for most of the 210 courses, so applying it uniformly is the honest choice. The one exception: FUOYE has its own detailed per-course admission-requirements document (see the dossier's FUOYE section) that's more granular than this template approach — worth revisiting once that's transcribed.
+
 ## Data model notes
 
-- `Course.catchmentCutOffByState` / `eldsCutOffByState` (JSON) hold **per-state** cut-off overrides for universities that publish them (UNILAG, OAU) — see the dossier's UNILAG section for why a single flat number per course doesn't match what these universities actually publish. Falls back to `catchmentCutOff`/`eldsCutOff` when a state isn't present in the map. The frontend's `Course` type mirrors this exactly (`src/types/domain.ts` in the frontend repo).
 - `AssessmentReport` stores `VerificationResult` / `AggregateScoreResult` / `CatchmentResult` / `CourseRecommendation[]` / `AssessmentContext` as JSON rather than five more tables — those shapes are read-mostly, per-candidate, and never queried by their internal fields.
 
 ## What's not done yet
 
-- **The remaining ~192 courses.** The seed script has 18 real, dossier-sourced courses (3 per university) to exercise the schema end-to-end — not the full 210-course catalog. Extending it is straightforward: add entries to the `UNIVERSITIES` array in `prisma/seed.ts` following the existing pattern, sourced from `docs/jamb-data-dossier.md`.
 - **Stage 5 onward** — admin CRUD, metrics/evaluation dashboard, hardening (rate limiting, structured logging, load testing). See the frontend repo's `docs/backend-implementation-plan.md`.
+- **The FUNAAB scale mismatch** (see "Seed data" above) — the single biggest blocker to FUNAAB actually working end-to-end.
 - **OAU's Law/Accounting split, FUOYE's Law faculty (open question), UI's real catchment/ELDS state names, FUTA's "Social & Management Sciences" faculty (open question)** — all flagged in the dossier as unresolved; don't treat the seed script's placeholders for these as settled.
+- **Frontend `Course` type still declares cut-offs as non-nullable** — needs updating to `number | null` (or the dossier gaps need filling) before every course in the catalog can round-trip cleanly through the existing frontend UI.
 
 ## Folder layout
 
