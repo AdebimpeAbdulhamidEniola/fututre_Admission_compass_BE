@@ -7,6 +7,12 @@ import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { catalogRouter } from "./modules/catalog/catalog.routes.js";
+import { candidatesRouter } from "./modules/candidates/candidates.routes.js";
+import { catchmentRouter } from "./modules/assessment/catchment.routes.js";
+import { eligibilityRouter } from "./modules/assessment/eligibility.routes.js";
+import { recommendationsRouter } from "./modules/assessment/recommendations.routes.js";
+import { scoringRouter } from "./modules/assessment/scoring.routes.js";
+import { assessmentsRouter } from "./modules/assessments/assessments.routes.js";
 import { healthRouter } from "./modules/health/health.routes.js";
 
 export function createApp() {
@@ -30,10 +36,14 @@ export function createApp() {
   app.use(healthRouter);
   app.use(authRouter);
   app.use(catalogRouter);
+  app.use(candidatesRouter);
+  app.use(eligibilityRouter);
+  app.use(scoringRouter);
+  app.use(catchmentRouter);
+  app.use(recommendationsRouter);
+  app.use(assessmentsRouter);
 
-  // Stage 4+ routers get mounted here as they're built:
-  // app.use(candidatesRouter);   // POST /candidates/profile, GET/PATCH /candidates/me
-  // app.use(assessmentRouter);   // POST /eligibility/verify, /scoring/aggregate, /assessments, ...
+  // Stage 5+ routers get mounted here as they're built:
   // app.use(adminRouter);        // /admin/*
   // ...
 
