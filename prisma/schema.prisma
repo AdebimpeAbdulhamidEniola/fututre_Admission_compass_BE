@@ -124,11 +124,18 @@ model ScoringPolicy {
   postUtmeMaxScore Float
 
   /// Per-university O'Level grade -> points table, e.g. { "A1": 6, "B2": 5, ... "F9": 0 }.
-  /// Null means "use the engine's generic table" (A1=10..C6=5). Only FUNAAB has a confirmed,
-  /// different table so far (A1=6..C6=1, max 30 vs. the generic max 50) — see
-  /// helpdesk.funaab.edu.ng Article ID 30. The engine normalizes by this table's own max, so a
-  /// smaller max (like FUNAAB's 30) still maps onto the same 0-100 percent scale correctly.
+  /// Null means "use the engine's generic table" (A1=10..C6=5). FUNAAB's table is Confirmed
+  /// (helpdesk.funaab.edu.ng Article ID 30); FUOYE's (A1=6..C6=1) is Likely, from
+  /// docs/jamb-data-dossier.md. Both differ from the generic max of 50 (FUNAAB/FUOYE max 30) —
+  /// the engine normalizes by this table's own max, so a smaller max still maps onto the same
+  /// 0-100 percent scale correctly.
   oLevelGradePoints Json?
+
+  /// Minimum Post-UTME percent (of postUtmeMaxScore) below which a candidate is disqualified
+  /// outright, regardless of JAMB score — null means no such floor. UNILAG's is Likely 12% (see
+  /// docs/jamb-data-dossier.md, UNILAG section). Checked in verifyEligibility(), not
+  /// computeAggregate() — it's an eligibility gate, not a scoring adjustment.
+  minPostUtmePercent Float?
 
   @@map("scoring_policies")
 }

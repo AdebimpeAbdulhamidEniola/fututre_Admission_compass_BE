@@ -55,9 +55,10 @@ export interface VerificationResult {
 }
 
 export async function verifyEligibility(candidate: CandidateProfileInput): Promise<VerificationResult> {
-  const requirement = await prisma.admissionRequirement.findUnique({
-    where: { courseId: candidate.targetCourseId },
-  });
+  const [requirement, policy] = await Promise.all([
+    prisma.admissionRequirement.findUnique({ where: { courseId: candidate.targetCourseId } }),
+    prisma.scoringPolicy.findUnique({ where: { universityId: candidate.targetUniversityId } }),
+  ]);
   const issues: VerificationIssue[] = [];
 
   const subjects = candidate.utmeSubjects.filter((s) => s !== "Use of English");
@@ -108,11 +109,28 @@ export async function verifyEligibility(candidate: CandidateProfileInput): Promi
     });
   }
 
+  // Some universities disqualify below a minimum Post-UTME percentage regardless of JAMB score
+  // (e.g. UNILAG, Likely 12% — see docs/jamb-data-dossier.md). Only checked when the candidate
+  // has actually sat Post-UTME; a null score is "can't score yet," handled elsewhere, not a fail.
+  let postUtmePassed = true;
+  if (policy?.minPostUtmePercent != null && candidate.postUtmeScore !== null) {
+    const postUtmePercent = (candidate.postUtmeScore / policy.postUtmeMaxScore) * 100;
+    postUtmePassed = postUtmePercent >= policy.minPostUtmePercent;
+    if (!postUtmePassed) {
+      issues.push({
+        code: "POST_UTME_BELOW_MINIMUM",
+        severity: "ERROR",
+        message: `This university disqualifies candidates scoring below ${policy.minPostUtmePercent}% in Post-UTME screening, regardless of JAMB score.`,
+        field: "postUtmeScore",
+      });
+    }
+  }
+
   const utmePassed = missing.length === 0;
   const oLevelPassed = missingCredits.length === 0 && credits.length >= minimumCredits;
 
   return {
-    eligible: utmePassed && oLevelPassed,
+    eligible: utmePassed && oLevelPassed && postUtmePassed,
     checkedAt: new Date().toISOString(),
     utmeSubjectCheck: { passed: utmePassed, missing, invalid },
     oLevelCheck: { passed: oLevelPassed, missingCredits, creditCount: credits.length },
@@ -221,9 +239,10 @@ export interface AggregateScoreResult {
 }
 
 async function loadCourseAndPolicy(candidate: CandidateProfileInput) {
-  const [policy, course] = await Promise.all([
+  const [policy, course, requirement] = await Promise.all([
     prisma.scoringPolicy.findUnique({ where: { universityId: candidate.targetUniversityId } }),
     prisma.course.findUnique({ where: { id: candidate.targetCourseId } }),
+    prisma.admissionRequirement.findUnique({ where: { courseId: candidate.targetCourseId } }),
   ]);
   if (!course || course.universityId !== candidate.targetUniversityId) {
     throw badRequest("targetCourseId does not belong to targetUniversityId");
@@ -231,11 +250,28 @@ async function loadCourseAndPolicy(candidate: CandidateProfileInput) {
   if (!policy) {
     throw badRequest("No scoring policy is configured for targetUniversityId");
   }
-  return { policy, course };
+  if (!requirement) {
+    throw badRequest("No admission requirement is configured for targetCourseId");
+  }
+  return { policy, course, requirement };
+}
+
+/**
+ * Per the dossier (docs/jamb-data-dossier.md, UNILAG section): the 5 O'Level subjects that count
+ * toward the aggregate are the course's own required combination for the candidate's stream, NOT
+ * the candidate's 5 highest-graded credits overall. A candidate who lists more than 5 results, or
+ * lists them in a different order, must still be scored on exactly the required subjects.
+ */
+function requiredOLevelResults(
+  candidate: CandidateProfileInput,
+  requirement: { requiredOLevelSubjects: string[] },
+) {
+  const required = new Set(requirement.requiredOLevelSubjects.map((s) => s.toLowerCase()));
+  return candidate.oLevelResults.filter((r) => required.has(r.subject.toLowerCase()));
 }
 
 export async function computeAggregate(candidate: CandidateProfileInput): Promise<AggregateScoreResult> {
-  const { policy, course } = await loadCourseAndPolicy(candidate);
+  const { policy, course, requirement } = await loadCourseAndPolicy(candidate);
 
   const catchment = await classifyCatchment(candidate);
 
@@ -243,9 +279,10 @@ export async function computeAggregate(candidate: CandidateProfileInput): Promis
   const postUtmePercent = ((candidate.postUtmeScore ?? 0) / policy.postUtmeMaxScore) * 100;
   const gradePoints = resolveGradePointsTable(policy);
   const oLevelMaxPoints = Math.max(...Object.values(gradePoints)) * 5;
-  const oLevelPoints = candidate.oLevelResults
-    .slice(0, 5)
-    .reduce((sum, r) => sum + gradePoints[r.grade], 0);
+  const oLevelPoints = requiredOLevelResults(candidate, requirement).reduce(
+    (sum, r) => sum + gradePoints[r.grade],
+    0,
+  );
   const oLevelPercent = (oLevelPoints / oLevelMaxPoints) * 100;
 
   const breakdown: AggregateScoreResult["breakdown"] = [

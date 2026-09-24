@@ -1,18 +1,15 @@
-import type { Course as PrismaCourse } from "@prisma/client";
+import type { Course as PrismaCourse, ScoringPolicy as PrismaScoringPolicy } from "@prisma/client";
 
 import { prisma } from "../../db/client.js";
 import { notFound } from "../../lib/errors.js";
+import { toNumberMap } from "../../lib/prisma-json.js";
 
-/** Prisma's Json fields come back as JsonValue (string | number | ... | null) — narrow to what Course actually stores. */
-function toCutOffMap(value: PrismaCourse["catchmentCutOffByState"]): Record<string, number> | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  return value as Record<string, number>;
-}
-
-/** Matches the frontend's Course type exactly (src/types/domain.ts) — null JSON fields become undefined. */
-function serializeCourse(course: PrismaCourse) {
-  const catchmentCutOffByState = toCutOffMap(course.catchmentCutOffByState);
-  const eldsCutOffByState = toCutOffMap(course.eldsCutOffByState);
+/** Matches the frontend's Course type exactly (src/types/domain.ts): meritCutOff/catchmentCutOff/
+ * eldsCutOff are nullable (a real, un-fabricated "not yet confirmed" — see docs/jamb-data-dossier.md),
+ * and null JSON by-state maps become undefined (an omitted key, not a `null` value). */
+export function serializeCourse(course: PrismaCourse) {
+  const catchmentCutOffByState = toNumberMap(course.catchmentCutOffByState);
+  const eldsCutOffByState = toNumberMap(course.eldsCutOffByState);
 
   return {
     id: course.id,
@@ -24,6 +21,22 @@ function serializeCourse(course: PrismaCourse) {
     eldsCutOff: course.eldsCutOff,
     ...(catchmentCutOffByState ? { catchmentCutOffByState } : {}),
     ...(eldsCutOffByState ? { eldsCutOffByState } : {}),
+  };
+}
+
+/** Matches the frontend's ScoringPolicy type exactly — null JSON/optional fields become undefined. */
+export function serializeScoringPolicy(policy: PrismaScoringPolicy) {
+  const oLevelGradePoints = toNumberMap(policy.oLevelGradePoints);
+  return {
+    id: policy.id,
+    universityId: policy.universityId,
+    utmeWeighting: policy.utmeWeighting,
+    postUtmeWeighting: policy.postUtmeWeighting,
+    oLevelWeighting: policy.oLevelWeighting,
+    utmeMaxScore: policy.utmeMaxScore,
+    postUtmeMaxScore: policy.postUtmeMaxScore,
+    ...(oLevelGradePoints ? { oLevelGradePoints } : {}),
+    ...(policy.minPostUtmePercent !== null ? { minPostUtmePercent: policy.minPostUtmePercent } : {}),
   };
 }
 
@@ -50,7 +63,7 @@ export async function getScoringPolicy(universityId: string) {
   await requireUniversity(universityId);
   const policy = await prisma.scoringPolicy.findUnique({ where: { universityId } });
   if (!policy) throw notFound("Scoring policy");
-  return policy;
+  return serializeScoringPolicy(policy);
 }
 
 export async function getCatchmentRule(universityId: string) {

@@ -140,6 +140,7 @@ interface UniversitySeed {
     utmeMaxScore: number;
     postUtmeMaxScore: number;
     oLevelGradePoints?: Record<string, number>;
+    minPostUtmePercent?: number;
   };
   catchmentRule: {
     catchmentStates: string[];
@@ -220,7 +221,16 @@ const UNIVERSITIES: UniversitySeed[] = [
     code: "UNILAG",
     name: "University of Lagos",
     locationState: "Lagos",
-    scoringPolicy: { utmeWeighting: 50, postUtmeWeighting: 30, oLevelWeighting: 20, utmeMaxScore: 400, postUtmeMaxScore: 100 },
+    // Likely: candidates below 12% in Post-UTME are disqualified regardless of JAMB score — see
+    // docs/jamb-data-dossier.md, UNILAG section. Enforced in verifyEligibility(), not the score.
+    scoringPolicy: {
+      utmeWeighting: 50,
+      postUtmeWeighting: 30,
+      oLevelWeighting: 20,
+      utmeMaxScore: 400,
+      postUtmeMaxScore: 100,
+      minPostUtmePercent: 12,
+    },
     catchmentRule: {
       catchmentStates: ["Ekiti", "Lagos", "Ogun", "Ondo", "Osun", "Oyo"],
       eldsStates: NATIONAL_ELDS_STATES,
@@ -536,17 +546,27 @@ const UNIVERSITIES: UniversitySeed[] = [
   // ============================================================================================
   // FUOYE — UTME floors Likely, cross-confirmed against FUOYE's own 2026/27 admission-requirements
   // document for most courses; only the 0–100 Aggregate column is used here (see SCALE NOTE).
-  // "Law" is seeded (a real number, 150-floor era aggregate is unknown → null) but flagged: the
-  // dossier raises a genuine open question over whether FUOYE's Law faculty exists at all, since
-  // it's absent from an otherwise-exhaustive 14-faculty admission-requirements document.
+  // "Law" is seeded (a real number, 150-floor era aggregate is unknown → null); its faculty's
+  // existence is user-verified real despite being absent from FUOYE's own otherwise-exhaustive
+  // 14-faculty admission-requirements document.
   // Catchment states Likely (Ekiti/Ondo/Osun/Oyo); no catchment/ELDS cut-off numbers published —
   // null for every course.
+  // O'Level grade table: Likely, A1=6..C6=1 (max 30) - NOT the engine's generic A1=10..C6=5 (max
+  // 50). The 10%-sitting-bonus component of FUOYE's formula (10pts one sitting, 6pts two) isn't
+  // modeled — see docs/jamb-data-dossier.md.
   // ============================================================================================
   {
     code: "FUOYE",
     name: "Federal University Oye-Ekiti",
     locationState: "Ekiti",
-    scoringPolicy: { utmeWeighting: 60, postUtmeWeighting: 0, oLevelWeighting: 30, utmeMaxScore: 400, postUtmeMaxScore: 100 },
+    scoringPolicy: {
+      utmeWeighting: 60,
+      postUtmeWeighting: 0,
+      oLevelWeighting: 30,
+      utmeMaxScore: 400,
+      postUtmeMaxScore: 100,
+      oLevelGradePoints: { A1: 6, B2: 5, B3: 4, C4: 3, C5: 2, C6: 1, D7: 0, E8: 0, F9: 0 },
+    },
     catchmentRule: {
       catchmentStates: ["Ekiti", "Ondo", "Osun", "Oyo"],
       eldsStates: NATIONAL_ELDS_STATES,

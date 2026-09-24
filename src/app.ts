@@ -5,6 +5,7 @@ import { pinoHttp } from "pino-http";
 
 import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
+import { adminRouter } from "./modules/admin/admin.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { catalogRouter } from "./modules/catalog/catalog.routes.js";
 import { candidatesRouter } from "./modules/candidates/candidates.routes.js";
@@ -42,10 +43,7 @@ export function createApp() {
   app.use(catchmentRouter);
   app.use(recommendationsRouter);
   app.use(assessmentsRouter);
-
-  // Stage 5+ routers get mounted here as they're built:
-  // app.use(adminRouter);        // /admin/*
-  // ...
+  app.use(adminRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

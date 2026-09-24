@@ -10,6 +10,8 @@ Being built stage by stage per [`docs/backend-implementation-plan.md`](https://g
 - **Stage 2 — auth.** `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, JWT-based, bcrypt password hashing, `requireAuth`/`requireAdmin` middleware.
 - **Stage 3 — public catalog endpoints.** `GET /universities`, `/universities/:id/courses`, `/universities/:id/scoring-policy`, `/universities/:id/catchment-rule`, `/courses/:id/requirements` — all public, no auth. 404s via the standard envelope for unknown IDs.
 - **Stage 4 — candidate profile + the assessment engine.** `POST /candidates/profile`, `GET`/`PATCH /candidates/me`, `POST /eligibility/verify`, `/scoring/aggregate`, `/catchment/classify`, `/recommendations`, `/assessments`, `GET /assessments`, `/assessments/:id`. The engine (`src/modules/assessment/engine.ts`) is a straight port of the frontend's `src/mocks/engine.ts` onto Postgres — see "Assessment engine" below for the details worth knowing before touching it.
+- **Stage 5 — admin CRUD.** `GET/POST/PATCH/DELETE` for `/admin/universities`, `/admin/courses`, `/admin/requirements`, `/admin/scoring-policies`, `/admin/catchment-rules` — all behind `requireAuth` + `requireAdmin`, each mutation writing an `AdminLogEntry` (`src/modules/admin/admin.routes.ts`, `admin.service.ts`).
+- **Stage 6 — metrics/evaluation dashboard.** `GET /admin/metrics`, `/admin/logs`, `/admin/evaluation-events` (paginated, filterable by module/outcome/date) — computed from real `AssessmentReport`/`EvaluationEvent`/`AdminLogEntry` rows (`src/modules/admin/metrics.service.ts`). **`precision`/`recall`/`accuracy`/`recommenderConfusionMatrix` are honest zeros/empty, not fabricated numbers** — those specifically measure the ML Decision Tree recommender's predicted-vs-actual accuracy (Stage 8, not built yet); today's `recommendCourses()` is deterministic arithmetic, not a trained classifier, so there's no ground truth to compute them from yet.
 
 ## Getting started
 
@@ -115,18 +117,18 @@ Every engine call is wrapped in `withEvaluationLog()` (`src/modules/assessment/e
 
 ## What's not done yet
 
-- **Stage 5 onward** — admin CRUD, metrics/evaluation dashboard, hardening (rate limiting, structured logging, load testing). See the frontend repo's `docs/backend-implementation-plan.md`.
+- **Stage 7 — hardening** (rate limiting, structured logging, load testing) and **Stage 8 — the ML Decision Tree course recommender**. See the frontend repo's `docs/backend-implementation-plan.md`.
 - **A real FUNAAB 0–100 aggregate cut-off figure** (see "Seed data" above) — until one is confirmed, FUNAAB courses can't clear a merit cut-off at all.
 - **FUNAAB's WAEC/NECO best-grade + 1-point-deduction rule and Agriculture-in-lieu-of-Biology rule** (see "Seed data" above) — real, confirmed rules, not yet implemented; needs a multi-sitting `OLevelResult` model.
-- **OAU's Law/Accounting split, FUOYE's Law faculty (open question), UI's real catchment/ELDS state names, FUTA's "Social & Management Sciences" faculty (open question)** — all flagged in the dossier as unresolved; don't treat the seed script's placeholders for these as settled.
-- **Frontend `Course` type still declares cut-offs as non-nullable** — needs updating to `number | null` (or the dossier gaps need filling) before every course in the catalog can round-trip cleanly through the existing frontend UI.
+- **OAU's Law/Accounting split, FUTA's "Social & Management Sciences" faculty (open question), UI's real catchment/ELDS state names** — all flagged in the dossier as unresolved; don't treat the seed script's placeholders for these as settled. (FUOYE's Law faculty is now confirmed real.)
+- **FUOYE's 10%-sitting-bonus scoring component** — not modeled; needs a schema field similar to `minPostUtmePercent`.
 
 ## Folder layout
 
 ```
 prisma/
   schema.prisma       Data model — mirrors domain.ts in the frontend repo
-  seed.ts             Seed script (6 universities + starter course subset)
+  seed.ts             Seed script — 6 universities, full 210-course catalog
 src/
   app.ts              Express app wiring (middleware, routers, error handler)
   server.ts           entrypoint — starts the HTTP listener, graceful shutdown
@@ -151,11 +153,12 @@ src/
                         and the eligibility/scoring/catchment/recommendations routers
     candidates/         POST /candidates/profile, GET/PATCH /candidates/me
     assessments/        POST/GET /assessments, GET /assessments/:id — persists AssessmentReport
-    # admin/, evaluation/ (Stage 5/6) — added stage by stage
+    admin/              admin CRUD (universities/courses/requirements/scoring-policies/
+                        catchment-rules) + metrics/logs/evaluation-events (Stage 5/6)
   types/
     express.d.ts        augments Express's Request with `user?: AuthUser`
 ```
 
 ## Roadmap
 
-See the frontend repo's `docs/backend-implementation-plan.md` for the full 8-stage plan and `docs/jamb-data-dossier.md` for the seed-data specification (per-university cut-offs, scoring formulas, catchment/ELDS data). Next up: **Stage 5 — admin CRUD** (`GET/POST/PATCH/DELETE` for universities, courses, requirements, scoring policies, catchment rules, all behind `requireAdmin`, each mutation writing an `AdminLogEntry`).
+See the frontend repo's `docs/backend-implementation-plan.md` for the full 8-stage plan and `docs/jamb-data-dossier.md` for the seed-data specification (per-university cut-offs, scoring formulas, catchment/ELDS data). Next up: **Stage 7 — hardening** (rate limiting, structured logging, load testing), then **Stage 8 — the ML Decision Tree course recommender** (`ml-cart`, a synthetic training dataset, a persisted `Recommendation` table) — see the earlier discussion in this repo's history for the concrete scope and open design questions (feature engineering, trigger condition, evaluation metrics) before starting it.
