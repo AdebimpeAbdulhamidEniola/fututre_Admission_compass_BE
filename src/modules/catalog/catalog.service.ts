@@ -3,6 +3,7 @@ import type { Course as PrismaCourse, ScoringPolicy as PrismaScoringPolicy } fro
 import { prisma } from "../../db/client.js";
 import { notFound } from "../../lib/errors.js";
 import { toNumberMap } from "../../lib/prisma-json.js";
+import { asSittingBonus } from "../assessment/engine.js";
 
 /** Matches the frontend's Course type exactly (src/types/domain.ts): meritCutOff/catchmentCutOff/
  * eldsCutOff are nullable (a real, un-fabricated "not yet confirmed" — see docs/jamb-data-dossier.md),
@@ -19,6 +20,7 @@ export function serializeCourse(course: PrismaCourse) {
     meritCutOff: course.meritCutOff,
     catchmentCutOff: course.catchmentCutOff,
     eldsCutOff: course.eldsCutOff,
+    utmeCutOff: course.utmeCutOff,
     ...(catchmentCutOffByState ? { catchmentCutOffByState } : {}),
     ...(eldsCutOffByState ? { eldsCutOffByState } : {}),
   };
@@ -27,6 +29,7 @@ export function serializeCourse(course: PrismaCourse) {
 /** Matches the frontend's ScoringPolicy type exactly — null JSON/optional fields become undefined. */
 export function serializeScoringPolicy(policy: PrismaScoringPolicy) {
   const oLevelGradePoints = toNumberMap(policy.oLevelGradePoints);
+  const sittingBonus = asSittingBonus(policy.sittingBonus);
   return {
     id: policy.id,
     universityId: policy.universityId,
@@ -40,6 +43,7 @@ export function serializeScoringPolicy(policy: PrismaScoringPolicy) {
     ...(policy.twoSittingDeductionPoints !== null
       ? { twoSittingDeductionPoints: policy.twoSittingDeductionPoints }
       : {}),
+    ...(sittingBonus ? { sittingBonus } : {}),
   };
 }
 

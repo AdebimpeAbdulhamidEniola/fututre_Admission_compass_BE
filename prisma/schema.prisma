@@ -94,6 +94,12 @@ model Course {
   /// Same idea as catchmentCutOffByState, but for ELDS (only OAU publishes this so far).
   eldsCutOffByState Json?
 
+  /// Raw JAMB/UTME cut-off (0–400), for courses whose university publishes only that and no 0–100
+  /// aggregate cut-off — every FUNAAB course (Confirmed, FUNAAB's 2026/27 admission portal). Used
+  /// only when the 0–100 cut-off for the candidate's status is null: the candidate's UTME score is
+  /// then compared against it instead of their aggregate.
+  utmeCutOff Int?
+
   requirement    AdmissionRequirement?
   assessments    AssessmentReport[]
 
@@ -149,6 +155,11 @@ model ScoringPolicy {
   /// grade per subject is taken first, then this many points come off the total. Null means no
   /// deduction. FUNAAB's is 1 (Confirmed, helpdesk.funaab.edu.ng Article ID 30).
   twoSittingDeductionPoints Float?
+
+  /// Points added straight onto the aggregate for the number of O'Level sittings, e.g.
+  /// { "oneSitting": 10, "twoSittings": 6 }. Null means no such component. FUOYE's is Likely
+  /// (docs/jamb-data-dossier.md). oneSitting counts toward the weightings' 100% total.
+  sittingBonus Json?
 
   @@map("scoring_policies")
 }

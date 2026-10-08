@@ -40,10 +40,11 @@ export async function createAssessment(userId: string, candidate: CandidateProfi
     withEvaluationLog("CATCHMENT", candidate.id, () => engine.classifyCatchment(candidate)),
     engine.buildAssessmentContext(candidate),
   ]);
-  const score =
-    candidate.postUtmeScore === null
-      ? null
-      : await withEvaluationLog("SCORING", candidate.id, () => engine.computeAggregate(candidate));
+  // "Can't score yet" (the formula needs a Post-UTME score the candidate doesn't have) is stored
+  // as score: null, not an error — the results page explains it.
+  const score = (await engine.canComputeAggregate(candidate))
+    ? await withEvaluationLog("SCORING", candidate.id, () => engine.computeAggregate(candidate))
+    : null;
   const recommendations = await withEvaluationLog("RECOMMENDATION", candidate.id, () =>
     engine.recommendCourses(candidate),
   );

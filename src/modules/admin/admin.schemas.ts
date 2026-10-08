@@ -23,6 +23,8 @@ export const courseSchema = z.object({
   eldsCutOff: z.number().min(0).max(400).nullable(),
   catchmentCutOffByState: cutOffByStateSchema.optional(),
   eldsCutOffByState: cutOffByStateSchema.optional(),
+  // Raw JAMB (0–400) cut-off, for courses that publish no 0–100 aggregate cut-off (FUNAAB).
+  utmeCutOff: z.number().int().min(0).max(400).nullable().optional(),
 });
 export const courseUpdateSchema = courseSchema.partial();
 
@@ -59,6 +61,9 @@ export const scoringPolicySchema = z.object({
   oLevelGradePoints: oLevelGradePointsSchema.optional(),
   minPostUtmePercent: z.number().min(0).max(100).optional(),
   twoSittingDeductionPoints: z.number().min(0).optional(),
+  sittingBonus: z
+    .object({ oneSitting: z.number().min(0).max(100), twoSittings: z.number().min(0).max(100) })
+    .optional(),
 });
 export const scoringPolicyUpdateSchema = scoringPolicySchema.partial();
 

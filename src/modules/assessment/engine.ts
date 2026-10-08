@@ -7,7 +7,7 @@
 import type { CatchmentRule, Course, OLevelGrade, ScoringPolicy } from "@prisma/client";
 
 import { prisma } from "../../db/client.js";
-import { badRequest } from "../../lib/errors.js";
+import { ApiError, badRequest } from "../../lib/errors.js";
 import type { CandidateProfileInput } from "./candidate-profile.schema.js";
 
 // Generic fallback table. Only used when a university's ScoringPolicy.oLevelGradePoints is null.
@@ -381,24 +381,144 @@ function resolveCutOff(
     : { value: course.catchmentCutOff, state: null };
 }
 
-/** resolveCutOff() returns null when the dossier has no confirmed figure for this course/status — surface that clearly instead of silently comparing against 0 or null. */
-function requireCutOffValue(resolved: { value: number | null; state: string | null }, courseName: string, status: CatchmentStatus) {
-  if (resolved.value === null) {
+interface ApplicableCutOff {
+  value: number;
+  type: CatchmentStatus;
+  basis: CutOffBasis;
+  state: string | null;
+}
+
+/**
+ * The cut-off this candidate is actually judged against. A published 0–100 cut-off for their
+ * status wins; failing that, a course that only publishes a raw JAMB cut-off (Course.utmeCutOff —
+ * FUNAAB) is judged on the candidate's UTME score instead. Null when neither exists yet.
+ */
+function resolveApplicableCutOff(
+  course: Course,
+  status: CatchmentStatus,
+  candidate: CandidateProfileInput,
+  rule: CatchmentRule | null,
+): ApplicableCutOff | null {
+  const resolved = resolveCutOff(course, status, candidate, rule);
+  if (resolved.value !== null) {
+    return { value: resolved.value, type: status, basis: "AGGREGATE", state: resolved.state };
+  }
+  if (course.utmeCutOff !== null) {
+    return { value: course.utmeCutOff, type: status, basis: "UTME", state: null };
+  }
+  return null;
+}
+
+/** No cut-off at all for this course/status — surface that clearly instead of silently comparing against 0. */
+function requireApplicableCutOff(cutOff: ApplicableCutOff | null, courseName: string, status: CatchmentStatus) {
+  if (cutOff === null) {
     throw badRequest(
       `No confirmed ${status.toLowerCase()} cut-off is available yet for "${courseName}" — see docs/jamb-data-dossier.md.`,
     );
   }
-  return { value: resolved.value, state: resolved.state };
+  return cutOff;
 }
+
+function compareWithCutOff(cutOff: ApplicableCutOff, aggregate: number, utmeScore: number) {
+  const score = cutOff.basis === "UTME" ? utmeScore : aggregate;
+  return { meetsCutOff: score >= cutOff.value, margin: round(score - cutOff.value) };
+}
+
+export type ScoreComponent = "UTME" | "POST_UTME" | "OLEVEL" | "SITTING_BONUS";
+export type CutOffBasis = "AGGREGATE" | "UTME";
 
 export interface AggregateScoreResult {
   aggregate: number;
-  breakdown: { component: "UTME" | "POST_UTME" | "OLEVEL"; rawScore: number; weighting: number; contribution: number }[];
+  breakdown: { component: ScoreComponent; rawScore: number; weighting: number; contribution: number }[];
   formulaDescription: string;
   applicableCutOff: number;
   cutOffType: CatchmentStatus;
+  /**
+   * AGGREGATE: applicableCutOff and margin are on the 0–100 aggregate scale. UTME: the course only
+   * publishes a raw JAMB cut-off (0–400, e.g. every FUNAAB course), so the candidate's UTME score
+   * is what gets compared — the 0–100 aggregate is still shown, just not judged against a cut-off.
+   */
+  cutOffBasis: CutOffBasis;
   meetsCutOff: boolean;
   margin: number;
+}
+
+export interface SittingBonus {
+  oneSitting: number;
+  twoSittings: number;
+}
+
+export function asSittingBonus(value: unknown): SittingBonus | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const { oneSitting, twoSittings } = value as Record<string, unknown>;
+  if (typeof oneSitting !== "number" || typeof twoSittings !== "number") return null;
+  return { oneSitting, twoSittings };
+}
+
+/** True when this university's formula has a Post-UTME term, so a missing score blocks the aggregate. */
+export function needsPostUtmeScore(policy: Pick<ScoringPolicy, "postUtmeWeighting">) {
+  return policy.postUtmeWeighting > 0;
+}
+
+/**
+ * The aggregate itself, on a 0–100 scale. postUtmePercent is passed in rather than read off the
+ * candidate so the recommender can score the same candidate under another university's formula.
+ * Components with a 0% weighting are left out of the breakdown (FUNAAB/FUTA/FUOYE have no
+ * Post-UTME term; UI uses O'Level only as an eligibility gate).
+ */
+function scoreCandidate(
+  candidate: CandidateProfileInput,
+  policy: ScoringPolicy,
+  requirement: RequirementRules,
+  postUtme: { rawScore: number; percent: number },
+) {
+  const utmePercent = (candidate.utmeScore / policy.utmeMaxScore) * 100;
+  const { points: oLevelPoints, percent: oLevelPercent } = scoreOLevel(candidate, requirement, policy);
+
+  const breakdown: AggregateScoreResult["breakdown"] = [
+    {
+      component: "UTME" as const,
+      rawScore: candidate.utmeScore,
+      weighting: policy.utmeWeighting,
+      contribution: round((utmePercent * policy.utmeWeighting) / 100),
+    },
+    {
+      component: "POST_UTME" as const,
+      rawScore: postUtme.rawScore,
+      weighting: policy.postUtmeWeighting,
+      contribution: round((postUtme.percent * policy.postUtmeWeighting) / 100),
+    },
+    {
+      component: "OLEVEL" as const,
+      rawScore: oLevelPoints,
+      weighting: policy.oLevelWeighting,
+      contribution: round((oLevelPercent * policy.oLevelWeighting) / 100),
+    },
+  ].filter((b) => b.weighting > 0);
+
+  // FUOYE (Likely): 10 points for a single sitting, 6 for two — added straight onto the aggregate.
+  const bonus = asSittingBonus(policy.sittingBonus);
+  if (bonus) {
+    breakdown.push({
+      component: "SITTING_BONUS",
+      rawScore: candidate.oLevelSittings,
+      weighting: bonus.oneSitting,
+      contribution: candidate.oLevelSittings === 2 ? bonus.twoSittings : bonus.oneSitting,
+    });
+  }
+
+  const formulaParts = [
+    `UTME ${policy.utmeWeighting}%`,
+    ...(policy.postUtmeWeighting > 0 ? [`Post-UTME ${policy.postUtmeWeighting}%`] : []),
+    ...(policy.oLevelWeighting > 0 ? [`O'Level ${policy.oLevelWeighting}%`] : []),
+    ...(bonus ? [`sitting bonus ${bonus.oneSitting}% (${bonus.twoSittings} for two sittings)`] : []),
+  ];
+
+  return {
+    aggregate: round(breakdown.reduce((s, b) => s + b.contribution, 0)),
+    breakdown,
+    formulaDescription: formulaParts.join(" + "),
+  };
 }
 
 async function loadCourseAndPolicy(candidate: CandidateProfileInput) {
@@ -419,52 +539,51 @@ async function loadCourseAndPolicy(candidate: CandidateProfileInput) {
   return { policy, course, requirement };
 }
 
+/** Whether an aggregate can be computed yet: false only when the formula needs a Post-UTME score the candidate doesn't have. */
+export async function canComputeAggregate(candidate: CandidateProfileInput) {
+  if (candidate.postUtmeScore !== null) return true;
+  const policy = await prisma.scoringPolicy.findUnique({ where: { universityId: candidate.targetUniversityId } });
+  return !policy || !needsPostUtmeScore(policy);
+}
+
 export async function computeAggregate(candidate: CandidateProfileInput): Promise<AggregateScoreResult> {
   const { policy, course, requirement } = await loadCourseAndPolicy(candidate);
 
-  const catchment = await classifyCatchment(candidate);
+  if (needsPostUtmeScore(policy) && candidate.postUtmeScore === null) {
+    throw new ApiError(
+      422,
+      "This university's formula includes a Post-UTME component, so an aggregate cannot be computed yet.",
+      "Unprocessable Entity",
+    );
+  }
 
-  const utmePercent = (candidate.utmeScore / policy.utmeMaxScore) * 100;
-  const postUtmePercent = ((candidate.postUtmeScore ?? 0) / policy.postUtmeMaxScore) * 100;
-  const { points: oLevelPoints, percent: oLevelPercent } = scoreOLevel(candidate, requirement, policy);
+  const [catchment, rule] = await Promise.all([
+    classifyCatchment(candidate),
+    prisma.catchmentRule.findUnique({ where: { universityId: candidate.targetUniversityId } }),
+  ]);
 
-  const breakdown: AggregateScoreResult["breakdown"] = [
-    {
-      component: "UTME",
-      rawScore: candidate.utmeScore,
-      weighting: policy.utmeWeighting,
-      contribution: round((utmePercent * policy.utmeWeighting) / 100),
-    },
-    {
-      component: "POST_UTME",
-      rawScore: candidate.postUtmeScore ?? 0,
-      weighting: policy.postUtmeWeighting,
-      contribution: round((postUtmePercent * policy.postUtmeWeighting) / 100),
-    },
-    {
-      component: "OLEVEL",
-      rawScore: oLevelPoints,
-      weighting: policy.oLevelWeighting,
-      contribution: round((oLevelPercent * policy.oLevelWeighting) / 100),
-    },
-  ];
+  const postUtmeRaw = candidate.postUtmeScore ?? 0;
+  const { aggregate, breakdown, formulaDescription } = scoreCandidate(candidate, policy, requirement, {
+    rawScore: postUtmeRaw,
+    percent: (postUtmeRaw / policy.postUtmeMaxScore) * 100,
+  });
 
-  const aggregate = round(breakdown.reduce((s, b) => s + b.contribution, 0));
-  const rule = await prisma.catchmentRule.findUnique({ where: { universityId: candidate.targetUniversityId } });
-  const applicableCutOff = requireCutOffValue(
-    resolveCutOff(course, catchment.status, candidate, rule),
+  const cutOff = requireApplicableCutOff(
+    resolveApplicableCutOff(course, catchment.status, candidate, rule),
     course.name,
     catchment.status,
-  ).value;
+  );
+  const { meetsCutOff, margin } = compareWithCutOff(cutOff, aggregate, candidate.utmeScore);
 
   return {
     aggregate,
     breakdown,
-    formulaDescription: `UTME ${policy.utmeWeighting}% + Post-UTME ${policy.postUtmeWeighting}% + O'Level ${policy.oLevelWeighting}%`,
-    applicableCutOff,
-    cutOffType: catchment.status,
-    meetsCutOff: aggregate >= applicableCutOff,
-    margin: round(aggregate - applicableCutOff),
+    formulaDescription,
+    applicableCutOff: cutOff.value,
+    cutOffType: cutOff.type,
+    cutOffBasis: cutOff.basis,
+    meetsCutOff,
+    margin,
   };
 }
 
@@ -480,6 +599,7 @@ export interface CourseRecommendation {
 }
 
 export async function recommendCourses(candidate: CandidateProfileInput): Promise<CourseRecommendation[]> {
+  if (!(await canComputeAggregate(candidate))) return [];
   const score = await computeAggregate(candidate);
   const catchment = await classifyCatchment(candidate);
 
@@ -542,6 +662,8 @@ export interface AssessmentContext {
   // Course.meritCutOff's doc comment in schema.prisma. This is a deliberate deviation from the
   // frontend's current (non-nullable) AssessmentContext.cutOffs type, flagged in the README.
   cutOffs: { merit: number | null; catchment: number | null; elds: number | null };
+  /** Raw JAMB (0–400) cut-off, for courses that publish only that (FUNAAB). Null otherwise. */
+  utmeCutOff: number | null;
   cutOffStates: { catchment: string | null; elds: string | null };
   quotaPercents: { merit: number; catchment: number; elds: number };
 }
@@ -576,6 +698,7 @@ export async function buildAssessmentContext(candidate: CandidateProfileInput): 
     requiredOLevelSubjects: requirement.requiredOLevelSubjects,
     minimumCredits: requirement.minimumCredits,
     cutOffs: { merit: merit.value, catchment: catchment.value, elds: elds.value },
+    utmeCutOff: course.utmeCutOff,
     cutOffStates: { catchment: catchment.state, elds: elds.state },
     quotaPercents: {
       merit: rule?.meritQuotaPercent ?? 45,

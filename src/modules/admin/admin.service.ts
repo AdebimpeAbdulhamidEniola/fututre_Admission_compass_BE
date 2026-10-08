@@ -1,5 +1,6 @@
 import { prisma } from "../../db/client.js";
-import { notFound } from "../../lib/errors.js";
+import { badRequest, notFound } from "../../lib/errors.js";
+import { asSittingBonus } from "../assessment/engine.js";
 import { serializeCourse, serializeScoringPolicy } from "../catalog/catalog.service.js";
 import type {
   CatchmentRuleUpdateInput,
@@ -105,12 +106,29 @@ export async function deleteRequirement(actorId: string, id: string) {
 
 // --- Scoring policies --------------------------------------------------------------------------
 
+/** Use Case 6's exception: UTME + Post-UTME + O'Level weightings (+ any sitting bonus) must total 100%. */
+function assertWeightingsTotal100(policy: {
+  utmeWeighting: number;
+  postUtmeWeighting: number;
+  oLevelWeighting: number;
+  sittingBonus?: unknown;
+}) {
+  const bonus = asSittingBonus(policy.sittingBonus)?.oneSitting ?? 0;
+  const total = policy.utmeWeighting + policy.postUtmeWeighting + policy.oLevelWeighting + bonus;
+  if (Math.abs(total - 100) > 0.01) {
+    throw badRequest(
+      `Weightings must add up to 100% (UTME + Post-UTME + O'Level${bonus ? " + sitting bonus" : ""}); these add up to ${Math.round(total * 100) / 100}%.`,
+    );
+  }
+}
+
 export async function listScoringPolicies() {
   const policies = await prisma.scoringPolicy.findMany();
   return policies.map(serializeScoringPolicy);
 }
 
 export async function createScoringPolicy(actorId: string, input: ScoringPolicyInput) {
+  assertWeightingsTotal100(input);
   const policy = await prisma.scoringPolicy.create({ data: input });
   await logAdminAction(actorId, "CREATE", "ScoringPolicy", `Created scoring policy for university ${policy.universityId}`);
   return serializeScoringPolicy(policy);
@@ -119,6 +137,12 @@ export async function createScoringPolicy(actorId: string, input: ScoringPolicyI
 export async function updateScoringPolicy(actorId: string, id: string, input: ScoringPolicyUpdateInput) {
   const existing = await prisma.scoringPolicy.findUnique({ where: { id } });
   if (!existing) throw notFound("Scoring policy");
+  assertWeightingsTotal100({
+    utmeWeighting: input.utmeWeighting ?? existing.utmeWeighting,
+    postUtmeWeighting: input.postUtmeWeighting ?? existing.postUtmeWeighting,
+    oLevelWeighting: input.oLevelWeighting ?? existing.oLevelWeighting,
+    sittingBonus: input.sittingBonus ?? existing.sittingBonus,
+  });
   const policy = await prisma.scoringPolicy.update({ where: { id }, data: input });
   await logAdminAction(actorId, "UPDATE", "ScoringPolicy", `Updated scoring policy for university ${policy.universityId}`);
   return serializeScoringPolicy(policy);
