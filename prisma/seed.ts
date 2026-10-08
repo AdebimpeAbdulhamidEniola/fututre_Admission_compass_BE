@@ -230,7 +230,8 @@ const UNIVERSITIES: UniversitySeed[] = [
     locationState: "Oyo",
     scoringPolicy: { utmeWeighting: 50, postUtmeWeighting: 50, oLevelWeighting: 0, utmeMaxScore: 400, postUtmeMaxScore: 100 },
     catchmentRule: {
-      catchmentStates: ["Oyo", "Ogun", "Osun", "Ondo", "Ekiti", "Kwara"],
+      // Kwara removed (user-confirmed): it is an ELDS state, already on NATIONAL_ELDS_STATES.
+      catchmentStates: ["Oyo", "Ogun", "Osun", "Ondo", "Ekiti"],
       eldsStates: NATIONAL_ELDS_STATES,
       meritQuotaPercent: 45,
       catchmentQuotaPercent: 35,
