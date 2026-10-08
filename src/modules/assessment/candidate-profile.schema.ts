@@ -8,6 +8,9 @@ export const oLevelResultSchema = z.object({
   grade: oLevelGradeSchema,
 });
 
+/** 1 or 2 — how many O'Level sittings the candidate combined. Defaults to 1 when omitted. */
+export const oLevelSittingsSchema = z.union([z.literal(1), z.literal(2)]).default(1);
+
 /**
  * The shape sent inline in every Stage 4 engine call (POST /eligibility/verify,
  * /scoring/aggregate, /catchment/classify, /recommendations, /assessments) — the frontend
@@ -24,6 +27,7 @@ export const candidateProfileInputSchema = z.object({
   postUtmeScore: z.number().int().min(0).nullable(),
   utmeSubjects: z.array(z.string().min(1)),
   oLevelResults: z.array(oLevelResultSchema),
+  oLevelSittings: oLevelSittingsSchema,
   targetCourseId: z.string().min(1),
   targetUniversityId: z.string().min(1),
 });

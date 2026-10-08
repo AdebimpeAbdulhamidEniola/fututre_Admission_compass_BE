@@ -32,6 +32,15 @@ export const requirementSchema = z.object({
   optionalUtmeSubjects: z.array(z.string().min(1)),
   requiredOLevelSubjects: z.array(z.string().min(1)),
   minimumCredits: z.number().int().min(0).max(9),
+  oLevelSubstitutions: z
+    .array(
+      z.object({
+        subject: z.string().trim().min(1),
+        alternatives: z.array(z.string().trim().min(1)).min(1),
+        countsTowardPoints: z.boolean(),
+      }),
+    )
+    .optional(),
 });
 export const requirementUpdateSchema = requirementSchema.partial();
 
@@ -49,6 +58,7 @@ export const scoringPolicySchema = z.object({
   postUtmeMaxScore: z.number().positive(),
   oLevelGradePoints: oLevelGradePointsSchema.optional(),
   minPostUtmePercent: z.number().min(0).max(100).optional(),
+  twoSittingDeductionPoints: z.number().min(0).optional(),
 });
 export const scoringPolicyUpdateSchema = scoringPolicySchema.partial();
 

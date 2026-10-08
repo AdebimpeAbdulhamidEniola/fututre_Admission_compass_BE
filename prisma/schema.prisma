@@ -110,6 +110,14 @@ model AdmissionRequirement {
   requiredOLevelSubjects String[]
   minimumCredits         Int
 
+  /// Subjects that may stand in for a required O'Level subject, e.g.
+  /// [{ "subject": "Biology", "alternatives": ["Agricultural Science"], "countsTowardPoints": false }].
+  /// A credit in an alternative satisfies the requirement for eligibility; countsTowardPoints says
+  /// whether that alternative's grade is also scored. FUNAAB accepts Agriculture in lieu of Biology
+  /// but scores it as zero (Confirmed, helpdesk.funaab.edu.ng Article ID 30); FUTA's Sciences and
+  /// Agriculture schools accept Biology or Agricultural Science interchangeably (Likely).
+  oLevelSubstitutions    Json     @default("[]")
+
   @@map("admission_requirements")
 }
 
@@ -136,6 +144,11 @@ model ScoringPolicy {
   /// docs/jamb-data-dossier.md, UNILAG section). Checked in verifyEligibility(), not
   /// computeAggregate() — it's an eligibility gate, not a scoring adjustment.
   minPostUtmePercent Float?
+
+  /// O'Level points deducted when a candidate combines two sittings (e.g. WAEC + NECO) — the best
+  /// grade per subject is taken first, then this many points come off the total. Null means no
+  /// deduction. FUNAAB's is 1 (Confirmed, helpdesk.funaab.edu.ng Article ID 30).
+  twoSittingDeductionPoints Float?
 
   @@map("scoring_policies")
 }
@@ -165,6 +178,8 @@ model CandidateProfile {
   utmeScore           Int
   postUtmeScore       Int?
   utmeSubjects        String[]
+  /// How many O'Level sittings (exam results) the candidate combined: 1 or 2.
+  oLevelSittings      Int      @default(1)
   targetCourseId      String?
   targetUniversityId  String?
   createdAt           DateTime @default(now())

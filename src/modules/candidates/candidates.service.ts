@@ -24,6 +24,7 @@ function serializeProfile(profile: ProfileWithResults) {
     postUtmeScore: profile.postUtmeScore,
     utmeSubjects: profile.utmeSubjects,
     oLevelResults: profile.oLevelResults.map((r) => ({ subject: r.subject, grade: r.grade })),
+    oLevelSittings: profile.oLevelSittings,
     targetCourseId: profile.targetCourseId,
     targetUniversityId: profile.targetUniversityId,
   };
@@ -44,6 +45,7 @@ export async function createOrReplaceProfile(userId: string, input: CreateProfil
           utmeScore: input.utmeScore,
           postUtmeScore: input.postUtmeScore,
           utmeSubjects: input.utmeSubjects,
+          oLevelSittings: input.oLevelSittings,
           targetCourseId: input.targetCourseId,
           targetUniversityId: input.targetUniversityId,
           oLevelResults: {
@@ -64,6 +66,7 @@ export async function createOrReplaceProfile(userId: string, input: CreateProfil
           utmeScore: input.utmeScore,
           postUtmeScore: input.postUtmeScore,
           utmeSubjects: input.utmeSubjects,
+          oLevelSittings: input.oLevelSittings,
           targetCourseId: input.targetCourseId,
           targetUniversityId: input.targetUniversityId,
           oLevelResults: { create: input.oLevelResults },

@@ -37,6 +37,9 @@ export function serializeScoringPolicy(policy: PrismaScoringPolicy) {
     postUtmeMaxScore: policy.postUtmeMaxScore,
     ...(oLevelGradePoints ? { oLevelGradePoints } : {}),
     ...(policy.minPostUtmePercent !== null ? { minPostUtmePercent: policy.minPostUtmePercent } : {}),
+    ...(policy.twoSittingDeductionPoints !== null
+      ? { twoSittingDeductionPoints: policy.twoSittingDeductionPoints }
+      : {}),
   };
 }
 

@@ -49,11 +49,18 @@ const NATIONAL_ELDS_STATES = [
 // combination per course wouldn't trace to anything in the source. The one exception is FUOYE,
 // which has its own detailed per-course admission-requirements document (see the dossier's
 // FUOYE section and this repo's README) — worth revisiting this file once that's transcribed.
+interface OLevelSubstitution {
+  subject: string;
+  alternatives: string[];
+  countsTowardPoints: boolean;
+}
+
 interface RequirementTemplate {
   requiredUtmeSubjects: string[];
   optionalUtmeSubjects: string[];
   requiredOLevelSubjects: string[];
   minimumCredits: number;
+  oLevelSubstitutions?: OLevelSubstitution[];
 }
 
 const REQUIREMENT_TEMPLATES: Record<string, RequirementTemplate> = {
@@ -107,6 +114,62 @@ function requirementFor(faculty: string): RequirementTemplate {
   return template;
 }
 
+const ENGLISH_MATHS_PHYSICS_CHEMISTRY = ["English Language", "Mathematics", "Physics", "Chemistry"];
+
+// FUTA's School of Computing — filed under "Science" in this catalog, but its O'Level rule is the
+// SEET/SOC one (English, Mathematics, Physics, Chemistry + 1 other science), not SOS's.
+const FUTA_COMPUTING_COURSES = new Set(["Computer Science", "Cybersecurity"]);
+
+/**
+ * University-specific O'Level rules from the dossier, layered over the per-faculty template:
+ * - FUTA (Likely, dossier FUTA section): SOS sciences need English, Mathematics, Physics,
+ *   Chemistry + Biology or Agricultural Science; SAAT agriculture needs English, Mathematics,
+ *   Chemistry + Biology or Agricultural Science (+ 1 more science). Agricultural Science is a full
+ *   substitute there, so it scores like Biology would.
+ * - FUNAAB (Confirmed, helpdesk.funaab.edu.ng Article ID 30): Core Sciences need English,
+ *   Mathematics, Physics, Chemistry, Biology. Agriculture is accepted in lieu of Biology for
+ *   eligibility but adds no O'Level points.
+ */
+function requirementForCourse(universityCode: string, course: CourseSeed): RequirementTemplate {
+  const template = requirementFor(course.faculty);
+
+  if (universityCode === "FUTA") {
+    const biologyOrAgric: OLevelSubstitution[] = [
+      { subject: "Biology", alternatives: ["Agricultural Science"], countsTowardPoints: true },
+    ];
+    if (course.faculty === "Science" && FUTA_COMPUTING_COURSES.has(course.name)) {
+      return { ...template, requiredOLevelSubjects: ENGLISH_MATHS_PHYSICS_CHEMISTRY };
+    }
+    if (course.faculty === "Science") {
+      return {
+        ...template,
+        requiredOLevelSubjects: [...ENGLISH_MATHS_PHYSICS_CHEMISTRY, "Biology"],
+        oLevelSubstitutions: biologyOrAgric,
+      };
+    }
+    if (course.faculty === "Agriculture") {
+      return { ...template, oLevelSubstitutions: biologyOrAgric };
+    }
+    return template;
+  }
+
+  if (universityCode === "FUNAAB") {
+    const requiredOLevelSubjects =
+      course.faculty === "Science"
+        ? [...ENGLISH_MATHS_PHYSICS_CHEMISTRY, "Biology"]
+        : template.requiredOLevelSubjects;
+    return {
+      ...template,
+      requiredOLevelSubjects,
+      oLevelSubstitutions: requiredOLevelSubjects.includes("Biology")
+        ? [{ subject: "Biology", alternatives: ["Agricultural Science"], countsTowardPoints: false }]
+        : [],
+    };
+  }
+
+  return template;
+}
+
 // --- Course seed shape -----------------------------------------------------------------------
 interface CourseSeed {
   name: string;
@@ -141,6 +204,7 @@ interface UniversitySeed {
     postUtmeMaxScore: number;
     oLevelGradePoints?: Record<string, number>;
     minPostUtmePercent?: number;
+    twoSittingDeductionPoints?: number;
   };
   catchmentRule: {
     catchmentStates: string[];
@@ -496,6 +560,8 @@ const UNIVERSITIES: UniversitySeed[] = [
       postUtmeMaxScore: 100,
       // Confirmed, helpdesk.funaab.edu.ng Article ID 30: A1=6, B2=5, B3=4, C4=3, C5=2, C6=1, D7-F9=0.
       oLevelGradePoints: { A1: 6, B2: 5, B3: 4, C4: 3, C5: 2, C6: 1, D7: 0, E8: 0, F9: 0 },
+      // Same source: two O'Level results (WAEC + NECO) — best grade per subject, minus 1 point.
+      twoSittingDeductionPoints: 1,
     },
     catchmentRule: {
       catchmentStates: ["Ogun", "Oyo", "Osun", "Ondo", "Ekiti", "Lagos"],
@@ -651,7 +717,8 @@ async function main() {
         create: { universityId: university.id, name: course.name, ...courseData },
       });
 
-      const requirement = requirementFor(course.faculty);
+      const template = requirementForCourse(uni.code, course);
+      const requirement = { ...template, oLevelSubstitutions: template.oLevelSubstitutions ?? [] };
       await prisma.admissionRequirement.upsert({
         where: { courseId: courseRow.id },
         update: requirement,
