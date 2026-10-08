@@ -2,7 +2,8 @@
  * Alternative-course recommendations (Module 4). Runs only for a candidate who passed the subject
  * and O'Level checks for their chosen course but scored below its cut-off (thesis §3.2.2). Every
  * other course at the same university that they're also eligible for is scored with that
- * university's formula, then ranked by the Decision Tree's estimated probability of admission.
+ * university's formula; those whose cut-off they meet are ranked by the Decision Tree's estimated
+ * probability of admission.
  */
 import { prisma } from "../../db/client.js";
 import type { CandidateProfileInput } from "../assessment/candidate-profile.schema.js";
@@ -84,7 +85,11 @@ export async function recommendCourses(
         course.id !== candidate.targetCourseId,
     )
     .map((course) => engine.evaluateCourse(candidate, postUtmePercent, course, catalog))
-    .filter((evaluation): evaluation is engine.CourseEvaluation => evaluation !== null)
+    // Only courses whose cut-off the candidate already meets (merit first, then their own category).
+    .filter(
+      (evaluation): evaluation is engine.CourseEvaluation =>
+        evaluation !== null && evaluation.meetsCutOff,
+    )
     .map((evaluation) => {
       const probability = model.predictProbability(
         toFeatures(evaluation, candidate.oLevelSittings),
