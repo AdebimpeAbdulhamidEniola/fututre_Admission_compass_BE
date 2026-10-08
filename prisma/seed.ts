@@ -608,8 +608,11 @@ const UNIVERSITIES: UniversitySeed[] = [
   },
 
   // ============================================================================================
-  // FUTA — Likely (Campusdesk, 2026/27 cycle; not futa.edu.ng itself). Only the 0–100 Aggregate
-  // column is used (see SCALE NOTE) — the raw Est. JAMB column is not stored. "Law" and "Arts"
+  // FUTA — the 0–100 aggregates are FUTA's 2018/19 departmental cut-offs (Likely: myschool.ng
+  // and two 2018–19 blog posts), re-posted every year since by Campusdesk and others under new
+  // session labels; FUTA has reportedly not published departmental cut-offs since. Treat them as
+  // old. Chemical/Mechatronics Engineering (created 2023), MBBS and the SLIT programmes have no
+  // published 0–100 figure at all. Only the 0–100 Aggregate column is used (see SCALE NOTE) — the raw Est. JAMB column is not stored. "Law" and "Arts"
   // are excluded entirely: the dossier explicitly states no such faculty exists at FUTA.
   // Catchment/ELDS: states are Uncertain (Ondo/Ekiti/Osun/Oyo/Lagos guess) and NO cut-off numbers
   // are published anywhere for either — null for every course.
