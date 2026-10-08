@@ -855,6 +855,18 @@ const UNIVERSITIES: UniversitySeed[] = [
   },
 ];
 
+/**
+ * Courses renamed since an earlier seed. Renaming the existing row (instead of upserting a new one)
+ * keeps one row per course and keeps old assessment reports pointing at it.
+ */
+const COURSE_RENAMES: { universityCode: string; from: string; to: string }[] = [
+  {
+    universityCode: "UNILAG",
+    from: "Industrial Relations and Personnel Management",
+    to: "Employment Relations and Human Resource Management",
+  },
+];
+
 async function main() {
   for (const uni of UNIVERSITIES) {
     const university = await prisma.university.upsert({
@@ -874,6 +886,14 @@ async function main() {
       update: uni.catchmentRule,
       create: { universityId: university.id, ...uni.catchmentRule },
     });
+
+    for (const rename of COURSE_RENAMES.filter((r) => r.universityCode === uni.code)) {
+      const [old, current] = await Promise.all([
+        prisma.course.findUnique({ where: { universityId_name: { universityId: university.id, name: rename.from } } }),
+        prisma.course.findUnique({ where: { universityId_name: { universityId: university.id, name: rename.to } } }),
+      ]);
+      if (old && !current) await prisma.course.update({ where: { id: old.id }, data: { name: rename.to } });
+    }
 
     for (const course of uni.courses) {
       const courseData = {
