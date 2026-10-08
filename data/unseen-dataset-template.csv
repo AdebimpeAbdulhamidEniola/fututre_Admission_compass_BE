@@ -1,0 +1,4 @@
+id,university,course,stateOfOrigin,schoolLocationState,utmeScore,postUtmeScore,utmeSubjects,oLevelResults,oLevelSittings,admitted
+EXAMPLE-1,UI,Computer Science,Oyo,Oyo,280,70,Mathematics;Physics;Chemistry,English Language:B2;Mathematics:A1;Physics:B3;Chemistry:C4;Biology:B2,1,0
+EXAMPLE-2,FUNAAB,Computer Science,Ogun,Ogun,265,,Mathematics;Physics;Chemistry,English Language:B3;Mathematics:B2;Physics:C4;Chemistry:C4;Biology:C5,1,1
+EXAMPLE-3,FUOYE,Computer Science,Lagos,Lagos,240,,Mathematics;Physics;Chemistry,English Language:B2;Mathematics:B3;Physics:C4;Chemistry:C4;Biology:B3;English Language:C5,2,0

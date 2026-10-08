@@ -19,7 +19,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "ml:train": "tsx src/modules/recommender/train.cli.ts"
+    "ml:train": "tsx src/modules/recommender/train.cli.ts",
+    "ml:evaluate": "tsx src/modules/recommender/evaluate.cli.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -56,6 +56,7 @@ curl http://localhost:3000/nonexistent
 - `npm run db:migrate` — apply Prisma schema migrations (dev)
 - `npm run db:seed` — run `prisma/seed.ts`
 - `npm run db:studio` — Prisma's DB browser GUI
+- `npm run ml:evaluate -- <file.csv>` — test the saved model on an unseen dataset of candidates with known admission outcomes (format: `data/unseen-dataset-template.csv`, documented in `src/modules/recommender/evaluate.cli.ts`); prints model vs. rule-baseline accuracy/precision/recall and saves `models/unseen-evaluation.json`
 - `npm run ml:train` — regenerate the synthetic dataset, retrain the recommender, print its test metrics, and save `models/recommender-model.json` + `models/synthetic-dataset.json` (restart the server afterwards)
 
 ## Error envelope
@@ -108,6 +109,7 @@ Async route handlers must be wrapped in `asyncHandler` (`src/lib/async-handler.t
 - **Training data** (`synthetic-data.ts`): 2,000 seeded synthetic candidate profiles, each checked against 2 random eligible courses from the seeded catalog with the live engine, and labelled admitted with probability `1 / (1 + e^(-margin / 2.5))` over that course's published cut-off. Deterministic for a given catalog.
 - **Model** (`model.ts`): ml-cart `DecisionTreeClassifier` (gini, max depth 8, min 10 samples per node) on 11 features (UTME/Post-UTME/O'Level percents, aggregate, cut-off, margin, catchment status, cut-off basis, sittings, university, faculty), 80/20 train/test split. The saved file holds the tree, the test accuracy/precision/recall/confusion matrix (shown on the admin metrics dashboard), and rows per course.
 - **Loading**: the server loads `RECOMMENDER_MODEL_PATH` (default `models/recommender-model.json`) at startup, training and saving one if it's missing. Run `npm run ml:train` after re-seeding or changing cut-offs, then restart.
+- **Unseen-data evaluation**: `npm run ml:evaluate -- <file.csv>` runs the saved model on real or independently collected candidates (not used in training). Rows the candidate isn't eligible for, or with no cut-off, are skipped with a reason. Report these metrics alongside the synthetic test-split ones.
 - **Storage**: every recommendation is also written to the `Recommendation` table (candidate, suggested course, rank, match probability), linked to its `AssessmentReport`.
 
 Every engine call is wrapped in `withEvaluationLog()` (`src/modules/assessment/evaluation-logger.ts`), writing an `EvaluationEvent` row (module, outcome, latency) as required by the implementation plan — this feeds the Stage 6 metrics dashboard.

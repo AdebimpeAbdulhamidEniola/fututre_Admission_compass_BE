@@ -70,7 +70,8 @@ export interface LoadedModel {
   predictProbability(features: number[]): number;
 }
 
-function evaluate(predicted: number[], actual: number[]): RecommenderMetrics {
+/** Accuracy/precision/recall/confusion matrix, class 1 (admitted) = MATCH. */
+export function scoreMetrics(predicted: number[], actual: number[]): RecommenderMetrics {
   let tp = 0;
   let fp = 0;
   let tn = 0;
@@ -149,7 +150,7 @@ export async function trainModel() {
     train.map((r) => r.features),
     train.map((r) => r.label),
   );
-  const metrics = evaluate(
+  const metrics = scoreMetrics(
     classifier.predict(test.map((r) => r.features)),
     test.map((r) => r.label),
   );
