@@ -362,7 +362,6 @@ const UNIVERSITIES: UniversitySeed[] = [
   // not the page itself, so Likely at best; see docs/jamb-data-dossier.md for per-row confidence.
   // Catchment states Confirmed (Ekiti/Lagos/Ogun/Ondo/Osun/Oyo); the release gives a per-state
   // catchment figure per course (missing states fall back to merit). No ELDS figures published.
-  // Industrial Relations stays on its 2025/26 figure (the 2026/27 list seems to rename it).
   // ============================================================================================
   {
     code: "UNILAG",
@@ -453,7 +452,10 @@ const UNIVERSITIES: UniversitySeed[] = [
       c("Banking and Finance", "Social & Management Sciences", 70.35, null, null, {
         catchmentByState: { Ekiti: 62.775, Lagos: 60.375, Ogun: 68.875, Ondo: 55.6, Osun: 65.925, Oyo: 64.275 },
       }),
-      c("Industrial Relations and Personnel Management", "Social & Management Sciences", 60.775, null, null),
+      // Formerly "Industrial Relations and Personnel Management" (renamed before 2026/27).
+      c("Employment Relations and Human Resource Management", "Social & Management Sciences", 66.025, null, null, {
+        catchmentByState: { Ekiti: 59, Lagos: 54.975, Ogun: 64, Ondo: 60.125, Osun: 57.4, Oyo: 59.9 },
+      }),
       c("Economics", "Social & Management Sciences", 73.625, null, null, {
         catchmentByState: { Ekiti: 62.525, Lagos: 64.9, Ogun: 68.05, Ondo: 62.175, Osun: 67.35, Oyo: 69.35 },
       }),
