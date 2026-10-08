@@ -5,6 +5,7 @@ import { ApiError } from "../../lib/errors.js";
 import type { CandidateProfileInput } from "../assessment/candidate-profile.schema.js";
 import * as engine from "../assessment/engine.js";
 import { withEvaluationLog } from "../assessment/evaluation-logger.js";
+import { createOrReplaceProfile } from "../candidates/candidates.service.js";
 import { recommendCourses, saveRecommendations } from "../recommender/recommender.js";
 
 /** Matches AssessmentReport in the frontend's src/types/domain.ts. */
@@ -34,7 +35,10 @@ async function requireOwnCandidateProfileId(userId: string): Promise<string> {
 }
 
 export async function createAssessment(userId: string, candidate: CandidateProfileInput) {
-  const candidateProfileId = await requireOwnCandidateProfileId(userId);
+  // The wizard submits the full profile with every assessment, so save it as the user's profile
+  // (creating it on their first assessment) rather than requiring a separate POST /candidates/profile.
+  // Linked by req.user.id, never by the client-supplied candidate.id.
+  const { id: candidateProfileId } = await createOrReplaceProfile(userId, candidate);
 
   const [verification, catchment, context] = await Promise.all([
     withEvaluationLog("VERIFICATION", candidate.id, () => engine.verifyEligibility(candidate)),
