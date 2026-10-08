@@ -357,11 +357,12 @@ const UNIVERSITIES: UniversitySeed[] = [
   },
 
   // ============================================================================================
-  // University of Lagos — Confirmed (unilag.edu.ng, 3 Oct 2025, current 2025/26 cycle).
-  // Catchment states Confirmed (Ekiti/Lagos/Ogun/Ondo/Osun/Oyo); per-state figures only exist in
-  // the dossier for 5 sample courses (Medicine, Law, Computer Science, Accounting, Civil
-  // Engineering) — the other 30 courses get only their single Merit figure, catchment/ELDS null.
-  // ELDS unconfirmed for UNILAG entirely (the official page never mentions it) — null everywhere.
+  // University of Lagos — 2026/27 cut-offs ("UNILAG Releases 2026/2027 UTME Merit Cut-Off Marks",
+  // unilag.edu.ng, ~16 Sep 2026), read via search-index text quoting the release and news mirrors —
+  // not the page itself, so Likely at best; see docs/jamb-data-dossier.md for per-row confidence.
+  // Catchment states Confirmed (Ekiti/Lagos/Ogun/Ondo/Osun/Oyo); the release gives a per-state
+  // catchment figure per course (missing states fall back to merit). No ELDS figures published.
+  // Industrial Relations stays on its 2025/26 figure (the 2026/27 list seems to rename it).
   // ============================================================================================
   {
     code: "UNILAG",
@@ -385,51 +386,103 @@ const UNIVERSITIES: UniversitySeed[] = [
       eldsQuotaPercent: 20,
     },
     courses: [
-      c("Medicine and Surgery", "Clinical Sciences", 85.025, 79.75, null, {
-        catchmentByState: { Ekiti: 79.975, Lagos: 79.75, Ogun: 83.8, Ondo: 81.325, Osun: 81.775, Oyo: 81.575 },
+      c("Medicine and Surgery", "Clinical Sciences", 83.425, null, null, {
+        catchmentByState: { Ekiti: 79.425, Lagos: 79.1, Ogun: 81.75, Ondo: 81.35, Osun: 79.825, Oyo: 80.05 },
       }),
-      c("Dentistry and Dental Surgery", "Clinical Sciences", 76.65, null, null),
-      c("Nursing Science", "Clinical Sciences", 79.8, null, null),
-      c("Physiotherapy", "Clinical Sciences", 74.725, null, null),
-      c("Medical Laboratory Science", "Clinical Sciences", 74.375, null, null),
-      c("Pharmacy", "Clinical Sciences", 76.4, null, null),
-      c("Law", "Law", 78.225, 75.9, null, {
-        catchmentByState: { Ekiti: 73.625, Lagos: 75.9, Ogun: 76.55, Ondo: 75.75, Osun: 76.35, Oyo: 74.525 },
+      c("Dentistry and Dental Surgery", "Clinical Sciences", 79.025, null, null, {
+        catchmentByState: { Ekiti: 74.575, Lagos: 72.725, Ogun: 77.3, Ondo: 76.325, Osun: 77.775, Oyo: 76.65 },
       }),
-      c("Civil Engineering", "Engineering & Technology", 75.625, 74.5, null, {
-        catchmentByState: { Ekiti: 65.525, Lagos: 74.5, Ogun: 72.075, Ondo: 65.575, Osun: 72.375, Oyo: 71.05 },
+      c("Nursing Science", "Clinical Sciences", 77.925, null, null, {
+        catchmentByState: { Ekiti: 72.775, Lagos: 73.95, Ogun: 76.275, Ondo: 74.875, Osun: 75.2, Oyo: 74.1 },
       }),
-      c("Mechanical Engineering", "Engineering & Technology", 78.525, null, null),
-      c("Electrical and Electronics Engineering", "Engineering & Technology", 79.5, null, null),
-      c("Chemical Engineering", "Engineering & Technology", 72.8, null, null),
-      c("Surveying and Geoinformatics Engineering", "Engineering & Technology", 58.125, null, null),
-      c("Metallurgical and Materials Engineering", "Engineering & Technology", 59.8, null, null),
-      c("English", "Arts", 68.175, null, null),
-      c("History and Strategic Studies", "Arts", 70.725, null, null),
-      c("Philosophy", "Arts", 66.075, null, null),
-      c("Linguistics, African and Asian Studies", "Arts", 72.55, null, null),
-      c("Religious Studies", "Arts", 54.625, null, null),
-      c("European Languages and Integrated Studies", "Arts", 60.225, null, null),
-      c("Accounting", "Social & Management Sciences", 75.7, 71.4, null, {
-        catchmentByState: { Ekiti: 69.475, Lagos: 71.4, Ogun: 73.825, Ondo: 68.8, Osun: 72.325, Oyo: 71 },
+      c("Physiotherapy", "Clinical Sciences", 76, null, null, {
+        catchmentByState: { Ekiti: 72.75, Lagos: 67.4, Ogun: 75.375, Ondo: 74.7, Osun: 73.675, Oyo: 72.3 },
       }),
-      c("Business Administration", "Social & Management Sciences", 69.3, null, null),
-      c("Actuarial Science and Insurance", "Social & Management Sciences", 64.925, null, null),
-      c("Banking and Finance", "Social & Management Sciences", 70.35, null, null),
+      c("Medical Laboratory Science", "Clinical Sciences", 75.075, null, null, {
+        catchmentByState: { Ekiti: 66.525, Lagos: 71.55, Ogun: 73.425, Ondo: 71.625, Osun: 74.35, Oyo: 69.875 },
+      }),
+      c("Pharmacy", "Clinical Sciences", 78.325, null, null, {
+        catchmentByState: { Ekiti: 72.875, Lagos: 72.175, Ogun: 76.3, Ondo: 75.275, Osun: 75.85, Oyo: 74.1 },
+      }),
+      c("Law", "Law", 79.125, null, null, {
+        catchmentByState: { Ekiti: 75.975, Lagos: 75.15, Ogun: 77.275, Ondo: 75.55, Osun: 75.25, Oyo: 76.35 },
+      }),
+      c("Civil Engineering", "Engineering & Technology", 74.35, null, null, {
+        catchmentByState: { Ekiti: 62.675, Lagos: 69.7, Ogun: 71.9, Ondo: 67.775, Osun: 71.55, Oyo: 68.575 },
+      }),
+      c("Mechanical Engineering", "Engineering & Technology", 79.275, null, null, {
+        catchmentByState: { Ekiti: 67.625, Lagos: 76.35, Ogun: 77.05, Ondo: 68.8, Osun: 70.525, Oyo: 74.325 },
+      }),
+      c("Electrical and Electronics Engineering", "Engineering & Technology", 79.025, null, null, {
+        catchmentByState: { Ekiti: 67.925, Lagos: 74.625, Ogun: 73.975, Ondo: 67.7, Osun: 69.2, Oyo: 71.3 },
+      }),
+      c("Chemical Engineering", "Engineering & Technology", 72.925, null, null, {
+        catchmentByState: { Ekiti: 62.625, Lagos: 63.525, Ogun: 70.925, Ondo: 67.525, Osun: 64.675, Oyo: 62.75 },
+      }),
+      c("Surveying and Geoinformatics Engineering", "Engineering & Technology", 66.075, null, null, {
+        catchmentByState: { Ekiti: 58.075, Lagos: 62.5, Ogun: 64.35, Ondo: 58.875, Osun: 59.75, Oyo: 64.3 },
+      }),
+      c("Metallurgical and Materials Engineering", "Engineering & Technology", 67.025, null, null, {
+        catchmentByState: { Ekiti: 64.875, Lagos: 60.825, Ogun: 65.45, Ondo: 60.3, Osun: 59.375, Oyo: 60.95 },
+      }),
+      c("English", "Arts", 68.15, null, null, {
+        catchmentByState: { Ekiti: 56.65, Lagos: 63.475, Ogun: 63.7, Ondo: 57.1, Osun: 53.475, Oyo: 61.325 },
+      }),
+      c("History and Strategic Studies", "Arts", 70.8, null, null, {
+        catchmentByState: { Ekiti: 62.65, Lagos: 67.425, Ogun: 68.65, Ondo: 63.2, Osun: 64.225, Oyo: 66.6 },
+      }),
+      c("Philosophy", "Arts", 67.725, null, null, {
+        catchmentByState: { Ekiti: 67.3, Lagos: 61.15, Ogun: 66.6, Ondo: 57.925, Osun: 55.5, Oyo: 58.15 },
+      }),
+      c("Linguistics, African and Asian Studies", "Arts", 72.575, null, null, {
+        catchmentByState: { Ekiti: 69.525, Lagos: 59.575, Ogun: 70.6, Ondo: 66.425, Osun: 68.375, Oyo: 69.1 },
+      }),
+      c("Religious Studies", "Arts", 55.825, null, null), // CRS track (IRS 56.35, Osun 51.95)
+      c("European Languages and Integrated Studies", "Arts", 64, null, null, {
+        catchmentByState: { Lagos: 62.2, Ogun: 60.45, Oyo: 59.85 },
+      }), // French track (German 69.125, Russian 55.45)
+      c("Accounting", "Social & Management Sciences", 73, null, null, {
+        catchmentByState: { Ekiti: 61.6, Lagos: 65.275, Ogun: 69.35, Ondo: 65.9, Osun: 68.625, Oyo: 67.85 },
+      }),
+      c("Business Administration", "Social & Management Sciences", 66.725, null, null, {
+        catchmentByState: { Ekiti: 55.45, Lagos: 60.025, Ogun: 62.7, Ondo: 57.1, Osun: 60.25, Oyo: 57.175 },
+      }),
+      c("Actuarial Science and Insurance", "Social & Management Sciences", 65.875, null, null, {
+        catchmentByState: { Ekiti: 65.575, Lagos: 62.925, Ogun: 64.175, Ondo: 52.3, Osun: 61.5, Oyo: 54.1 },
+      }), // Actuarial Science track (Insurance 63.125)
+      c("Banking and Finance", "Social & Management Sciences", 70.35, null, null, {
+        catchmentByState: { Ekiti: 62.775, Lagos: 60.375, Ogun: 68.875, Ondo: 55.6, Osun: 65.925, Oyo: 64.275 },
+      }),
       c("Industrial Relations and Personnel Management", "Social & Management Sciences", 60.775, null, null),
-      c("Economics", "Social & Management Sciences", 73.475, null, null),
-      c("Psychology", "Social & Management Sciences", 69.7, null, null),
-      c("Political Science", "Social & Management Sciences", 68.15, null, null),
-      c("Computer Science", "Science", 83.425, 79.6, null, {
-        catchmentByState: { Ekiti: 80.125, Lagos: 79.6, Ogun: 82.025, Ondo: 77.5, Osun: 79.2, Oyo: 78.1 },
+      c("Economics", "Social & Management Sciences", 73.625, null, null, {
+        catchmentByState: { Ekiti: 62.525, Lagos: 64.9, Ogun: 68.05, Ondo: 62.175, Osun: 67.35, Oyo: 69.35 },
       }),
-      c("Physics", "Science", 60.25, null, null),
-      c("Chemistry", "Science", 59.5, null, null),
-      c("Mathematics", "Science", 63.675, null, null),
-      c("Biochemistry", "Science", 69.4, null, null),
-      c("Botany", "Science", 51.45, null, null),
-      c("Zoology", "Science", 57.25, null, null),
-      c("Marine Sciences / Marine Biology", "Science", 55.45, null, null),
+      c("Psychology", "Social & Management Sciences", 70.15, null, null, {
+        catchmentByState: { Ekiti: 56.975, Lagos: 67.125, Ogun: 62.95, Ondo: 55.8, Osun: 58.05, Oyo: 60.975 },
+      }),
+      c("Political Science", "Social & Management Sciences", 65.65, null, null, {
+        catchmentByState: { Ekiti: 59.75, Lagos: 51.5, Ogun: 61.975, Ondo: 58.825, Osun: 51.5, Oyo: 55.275 },
+      }),
+      c("Computer Science", "Science", 82.05, null, null, {
+        catchmentByState: { Ekiti: 78.4, Lagos: 73.225, Ogun: 79.175, Ondo: 79.675, Osun: 78.85, Oyo: 79.875 },
+      }),
+      c("Physics", "Science", 54.5, null, null),
+      c("Chemistry", "Science", 65.4, null, null, {
+        catchmentByState: { Ekiti: 62.8, Lagos: 59.15, Ogun: 61.25, Ondo: 55.625, Osun: 59.975, Oyo: 59.875 },
+      }),
+      c("Mathematics", "Science", 58.775, null, null, {
+        catchmentByState: { Ekiti: 57.5, Lagos: 58.275, Ogun: 57.8, Osun: 55.125 },
+      }),
+      c("Biochemistry", "Science", 67.9, null, null, {
+        catchmentByState: { Ekiti: 55.95, Lagos: 63.15, Ogun: 63.65, Ondo: 60.625, Osun: 64.025, Oyo: 57.03 },
+      }),
+      c("Botany", "Science", 54.3, null, null, {
+        catchmentByState: { Lagos: 50.95 },
+      }),
+      c("Zoology", "Science", 54.825, null, null),
+      c("Marine Sciences / Marine Biology", "Science", 64.825, null, null, {
+        catchmentByState: { Ekiti: 54.25, Lagos: 54.95, Ogun: 60.975, Ondo: 50.55, Osun: 59.3, Oyo: 59.075 },
+      }),
     ],
   },
 
