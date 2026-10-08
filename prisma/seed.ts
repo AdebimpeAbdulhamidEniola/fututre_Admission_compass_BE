@@ -86,6 +86,15 @@ const REQUIREMENT_TEMPLATES: Record<string, RequirementTemplate> = {
     requiredOLevelSubjects: ["English Language", "Mathematics", "Economics"],
     minimumCredits: 5,
   },
+  // FUTA's School of Logistics and Innovation Technology (SLIT, formerly School of Management
+  // Technology) — Likely, slit.futa.edu.ng. Its per-programme subject lists are mostly Uncertain,
+  // so the general management/social-science rule applies for now.
+  "Logistics & Innovation Technology": {
+    requiredUtmeSubjects: ["Mathematics", "Economics"],
+    optionalUtmeSubjects: ["Government", "Geography", "Commerce"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Economics"],
+    minimumCredits: 5,
+  },
   "Engineering & Technology": {
     requiredUtmeSubjects: ["Mathematics", "Physics", "Chemistry"],
     optionalUtmeSubjects: ["Further Mathematics"],
@@ -231,7 +240,8 @@ const UNIVERSITIES: UniversitySeed[] = [
     scoringPolicy: { utmeWeighting: 50, postUtmeWeighting: 50, oLevelWeighting: 0, utmeMaxScore: 400, postUtmeMaxScore: 100 },
     catchmentRule: {
       // Kwara removed (user-confirmed): it is an ELDS state, already on NATIONAL_ELDS_STATES.
-      catchmentStates: ["Oyo", "Ogun", "Osun", "Ondo", "Ekiti"],
+      // Lagos added (Likely: three secondary sources; user-approved). No official UI list found.
+      catchmentStates: ["Oyo", "Ogun", "Osun", "Ondo", "Ekiti", "Lagos"],
       eldsStates: NATIONAL_ELDS_STATES,
       meritQuotaPercent: 45,
       catchmentQuotaPercent: 35,
@@ -508,11 +518,11 @@ const UNIVERSITIES: UniversitySeed[] = [
       c("Metallurgical and Materials Engineering", "Engineering & Technology", 54.87, null, null),
       c("Mining Engineering", "Engineering & Technology", 54.75, null, null),
       c("Mechatronics Engineering", "Engineering & Technology", null, null, null),
-      c("Business Information Technology", "Social & Management Sciences", null, null, null),
-      c("Entrepreneurship Management Technology", "Social & Management Sciences", null, null, null),
-      c("Logistics and Transport Technology", "Social & Management Sciences", null, null, null),
-      c("Project Management Technology", "Social & Management Sciences", null, null, null),
-      c("Procurement Management Technology", "Social & Management Sciences", null, null, null),
+      c("Business Information Technology", "Logistics & Innovation Technology", null, null, null),
+      c("Entrepreneurship Management Technology", "Logistics & Innovation Technology", null, null, null),
+      c("Logistics and Transport Technology", "Logistics & Innovation Technology", null, null, null),
+      c("Project Management Technology", "Logistics & Innovation Technology", null, null, null),
+      c("Procurement Management Technology", "Logistics & Innovation Technology", null, null, null),
       c("Physics", "Science", 47.5, null, null),
       c("Chemistry", "Science", 47.5, null, null),
       c("Mathematics", "Science", 59, null, null),
@@ -646,8 +656,9 @@ const UNIVERSITIES: UniversitySeed[] = [
       c("Nursing Science", "Clinical Sciences", 74.6, null, null),
       c("Medical Laboratory Science", "Clinical Sciences", 72.3, null, null),
       c("Radiography and Radiation Science", "Clinical Sciences", 71.3, null, null),
-      // OPEN QUESTION: FUOYE Law's existence is unconfirmed — see dossier. Aggregate cut-off unknown.
-      c("Law", "Law", null, null, null),
+      // 77.75 is FUOYE's 2025/26 Law departmental cut-off (Confirmed, news.fuoye.edu.ng). FUOYE is
+      // not admitting into Law for 2026/27 (Confirmed, putme.fuoye.edu.ng).
+      c("Law", "Law", 77.75, null, null),
       c("Civil Engineering", "Engineering & Technology", 65.0, null, null),
       c("Mechanical Engineering", "Engineering & Technology", 65.0, null, null),
       c("Electrical and Electronic Engineering", "Engineering & Technology", 63.3, null, null),

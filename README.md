@@ -135,10 +135,10 @@ Every engine call is wrapped in `withEvaluationLog()` (`src/modules/assessment/e
 
 Waiting on data (the code already handles it once the figures are in — via the seed script or admin CRUD):
 - **FUOYE's per-course admission requirements** — its own admission-requirements document is the authoritative source for `AdmissionRequirement` per course; not transcribed yet, so FUOYE still uses the per-faculty templates.
-- **UI's real catchment/ELDS states** — still the original unverified guess (Oyo, Ogun, Osun, Ondo, Ekiti, Kwara).
+- **UI's catchment/ELDS states** — now Oyo, Ogun, Osun, Ondo, Ekiti, Lagos (Likely, secondary sources; Kwara moved to ELDS). No official UI list found yet.
 - **More UNILAG per-state catchment cut-offs** — only 5 of 35 courses have them.
-- **Missing cut-offs** — e.g. FUTA Chemical Engineering, Mechatronics Engineering, MBBS and the "Social & Management Sciences" courses; FUOYE Law.
-- **Open questions in the dossier** — FUTA's "Social & Management Sciences" school, FUOYE Law's cut-off, FUTA's disputed formula (kept as 75% UTME + 25% O'Level, no Post-UTME).
+- **Missing cut-offs** — FUTA Chemical Engineering, Mechatronics Engineering, MBBS and the five School of Logistics and Innovation Technology courses (FUTA hasn't published 0–100 departmental cut-offs for them).
+- **Open questions in the dossier** — FUTA's disputed formula (kept as 75% UTME + 25% O'Level, no Post-UTME).
 
 Not started:
 - **Stage 7 — hardening** (rate limiting, load testing) and automated tests.

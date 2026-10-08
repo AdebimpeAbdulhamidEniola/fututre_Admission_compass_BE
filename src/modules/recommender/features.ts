@@ -10,6 +10,7 @@ const FACULTIES = [
   "Social & Management Sciences",
   "Science",
   "Agriculture",
+  "Logistics & Innovation Technology",
 ];
 const STATUS_CODES = { MERIT: 0, CATCHMENT: 1, ELDS: 2 } as const;
 
