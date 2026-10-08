@@ -1,6 +1,7 @@
 import type { EvaluationModule, EvaluationOutcome } from "@prisma/client";
 
 import { prisma } from "../../db/client.js";
+import { getModel, type RecommenderMetrics } from "../recommender/model.js";
 
 // Not a fact about the world — a configured target, same as the quota-percent fallbacks used
 // elsewhere in this codebase. Change here if the project sets a different SLA.
@@ -34,8 +35,17 @@ export interface AdminMetrics {
   aggregateScoreHistogram: { bucket: string; count: number }[];
 }
 
+/** Held-out test metrics saved with the trained model; zeros if no model can be loaded or trained. */
+async function recommenderMetrics(): Promise<RecommenderMetrics> {
+  try {
+    return (await getModel()).saved.metrics;
+  } catch {
+    return { accuracy: 0, precision: 0, recall: 0, confusionMatrix: [] };
+  }
+}
+
 export async function getMetrics(): Promise<AdminMetrics> {
-  const [totalCandidates, reports, events] = await Promise.all([
+  const [totalCandidates, reports, events, recommender] = await Promise.all([
     prisma.candidateProfile.count(),
     prisma.assessmentReport.findMany({
       select: {
@@ -47,6 +57,7 @@ export async function getMetrics(): Promise<AdminMetrics> {
     prisma.evaluationEvent.findMany({
       select: { module: true, outcome: true, latencyMs: true, timestamp: true },
     }),
+    recommenderMetrics(),
   ]);
 
   const assessmentsRun = reports.length;
@@ -120,17 +131,16 @@ export async function getMetrics(): Promise<AdminMetrics> {
     eligibilityPassRate,
     averageAggregate,
     byUniversity,
-    // The ML Decision Tree recommender (see docs/backend-implementation-plan.md, Stage 8) isn't
-    // built yet — recommendCourses() today is deterministic arithmetic, not a trained classifier,
-    // so there's no predicted-vs-actual ground truth to compute precision/recall/accuracy from.
-    // Honest zeros/empty, not a fabricated number, until that module exists and is evaluated.
-    precision: 0,
-    recall: 0,
-    accuracy: 0,
+    // The Decision Tree recommender's precision/recall/accuracy on its held-out 20% test split of
+    // the synthetic dataset (see src/modules/recommender/model.ts) — predicted vs. simulated
+    // admission outcome, MATCH = admitted.
+    precision: recommender.precision,
+    recall: recommender.recall,
+    accuracy: recommender.accuracy,
     meanResponseLatencyMs,
     latencyTargetMs: LATENCY_TARGET_MS,
     latencyTimeSeries,
-    recommenderConfusionMatrix: [],
+    recommenderConfusionMatrix: recommender.confusionMatrix,
     aggregateScoreHistogram,
   };
 }

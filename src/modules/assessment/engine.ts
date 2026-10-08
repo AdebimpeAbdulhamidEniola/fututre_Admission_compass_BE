@@ -136,6 +136,14 @@ function checkOLevelCredits(results: OLevelResultInput[], requirement: Requireme
   };
 }
 
+/** The same eligibility gate verifyEligibility applies, reused for every course the recommender considers. */
+export function meetsRequirement(candidate: CandidateProfileInput, requirement: RequirementRules) {
+  return (
+    checkUtmeSubjects(candidate.utmeSubjects, requirement).passed &&
+    checkOLevelCredits(candidate.oLevelResults, requirement).passed
+  );
+}
+
 const SCORED_OLEVEL_SUBJECTS = 5;
 
 /**
@@ -308,14 +316,31 @@ export interface CatchmentResult {
   quotaSharePercent: number;
 }
 
+/** ELDS state of origin first, then catchment by state of origin or school location, else merit. */
+export function classifyStatus(
+  candidate: Pick<CandidateProfileInput, "stateOfOrigin" | "schoolLocationState">,
+  rule: CatchmentRule | null,
+): CatchmentStatus {
+  if (!rule) return "MERIT";
+  if (rule.eldsStates.includes(candidate.stateOfOrigin)) return "ELDS";
+  if (
+    rule.catchmentStates.includes(candidate.stateOfOrigin) ||
+    rule.catchmentStates.includes(candidate.schoolLocationState)
+  ) {
+    return "CATCHMENT";
+  }
+  return "MERIT";
+}
+
 export async function classifyCatchment(candidate: CandidateProfileInput): Promise<CatchmentResult> {
   const [rule, university] = await Promise.all([
     prisma.catchmentRule.findUnique({ where: { universityId: candidate.targetUniversityId } }),
     prisma.university.findUnique({ where: { id: candidate.targetUniversityId } }),
   ]);
   const uniName = university?.name ?? "this university";
+  const status = classifyStatus(candidate, rule);
 
-  if (rule && rule.eldsStates.includes(candidate.stateOfOrigin)) {
+  if (rule && status === "ELDS") {
     return {
       status: "ELDS",
       reason: `${candidate.stateOfOrigin} is on the Educationally Less Developed States list.`,
@@ -323,11 +348,7 @@ export async function classifyCatchment(candidate: CandidateProfileInput): Promi
       quotaSharePercent: rule.eldsQuotaPercent,
     };
   }
-  if (
-    rule &&
-    (rule.catchmentStates.includes(candidate.stateOfOrigin) ||
-      rule.catchmentStates.includes(candidate.schoolLocationState))
-  ) {
+  if (rule && status === "CATCHMENT") {
     return {
       status: "CATCHMENT",
       reason: `${candidate.stateOfOrigin} falls inside the catchment area of ${uniName}.`,
@@ -381,7 +402,7 @@ function resolveCutOff(
     : { value: course.catchmentCutOff, state: null };
 }
 
-interface ApplicableCutOff {
+export interface ApplicableCutOff {
   value: number;
   type: CatchmentStatus;
   basis: CutOffBasis;
@@ -534,6 +555,8 @@ function scoreCandidate(
     aggregate: round(breakdown.reduce((s, b) => s + b.contribution, 0)),
     breakdown,
     formulaDescription: formulaParts.join(" + "),
+    utmePercent,
+    oLevelPercent,
   };
 }
 
@@ -603,61 +626,81 @@ export async function computeAggregate(candidate: CandidateProfileInput): Promis
   };
 }
 
-export interface CourseRecommendation {
-  rank: number;
-  courseId: string;
-  courseName: string;
-  universityCode: string;
-  faculty: string;
-  matchProbability: number;
-  requiredAggregate: number;
-  rationale: string[];
-}
+// --- Whole-catalog evaluation (used by the recommender and its synthetic training data) -------
 
-export async function recommendCourses(candidate: CandidateProfileInput): Promise<CourseRecommendation[]> {
-  if (!(await canComputeAggregate(candidate))) return [];
-  const score = await computeAggregate(candidate);
-  const catchment = await classifyCatchment(candidate);
-
-  const [courses, rules] = await Promise.all([
-    prisma.course.findMany({
-      where: { id: { not: candidate.targetCourseId } },
-      include: { university: true },
-    }),
+export async function loadCatalog() {
+  const [courses, requirements, policies, rules] = await Promise.all([
+    prisma.course.findMany({ include: { university: true }, orderBy: { id: "asc" } }),
+    prisma.admissionRequirement.findMany(),
+    prisma.scoringPolicy.findMany(),
     prisma.catchmentRule.findMany(),
   ]);
-  const ruleByUniversityId = new Map(rules.map((r) => [r.universityId, r]));
+  return {
+    courses,
+    requirementByCourseId: new Map(requirements.map((r) => [r.courseId, r])),
+    policyByUniversityId: new Map(policies.map((p) => [p.universityId, p])),
+    ruleByUniversityId: new Map(rules.map((r) => [r.universityId, r])),
+  };
+}
 
-  return courses
-    .map((course) => {
-      const courseRule = ruleByUniversityId.get(course.universityId) ?? null;
-      const cutOff = resolveCutOff(course, catchment.status, candidate, courseRule).value;
-      return cutOff === null ? null : { course, cutOff };
-    })
-    .filter((entry): entry is { course: (typeof courses)[number]; cutOff: number } => entry !== null)
-    .map(({ course, cutOff }) => {
-      const headroom = score.aggregate - cutOff;
-      const matchProbability = clamp(0.5 + headroom / 30, 0.02, 0.97);
-      const rationale = [
-        headroom >= 0
-          ? `Your aggregate of ${score.aggregate} is ${round(headroom)} point(s) above the ${cutOff} cut-off.`
-          : `Your aggregate of ${score.aggregate} is ${Math.abs(round(headroom))} point(s) short of the ${cutOff} cut-off.`,
-        `${course.university.name} applies a ${catchment.status.toLowerCase()} cut-off in your case.`,
-      ];
-      return {
-        rank: 0,
-        courseId: course.id,
-        courseName: course.name,
-        universityCode: course.university.code,
-        faculty: course.faculty,
-        matchProbability: round(matchProbability, 2),
-        requiredAggregate: cutOff,
-        rationale,
-      };
-    })
-    .sort((a, b) => b.matchProbability - a.matchProbability)
-    .slice(0, 8)
-    .map((r, i) => ({ ...r, rank: i + 1 }));
+export type Catalog = Awaited<ReturnType<typeof loadCatalog>>;
+export type CatalogCourse = Catalog["courses"][number];
+
+export interface CourseEvaluation {
+  course: CatalogCourse;
+  status: CatchmentStatus;
+  aggregate: number;
+  utmePercent: number;
+  postUtmePercent: number | null;
+  oLevelPercent: number;
+  cutOff: ApplicableCutOff;
+  meetsCutOff: boolean;
+  margin: number;
+}
+
+/**
+ * How one candidate stands for one course: null when they don't meet its subject/O'Level
+ * requirements, can't be scored (no Post-UTME score for a formula that needs one, or below its
+ * Post-UTME floor), or the course has no cut-off yet. postUtmePercent is the candidate's Post-UTME
+ * as a percentage — for another university's course, the recommender assumes they'd score the
+ * same percentage there.
+ */
+export function evaluateCourse(
+  candidate: CandidateProfileInput,
+  postUtmePercent: number | null,
+  course: CatalogCourse,
+  catalog: Catalog,
+): CourseEvaluation | null {
+  const requirement = catalog.requirementByCourseId.get(course.id);
+  const policy = catalog.policyByUniversityId.get(course.universityId);
+  if (!requirement || !policy || !meetsRequirement(candidate, requirement)) return null;
+  if (needsPostUtmeScore(policy) && postUtmePercent === null) return null;
+  if (policy.minPostUtmePercent != null && postUtmePercent !== null && postUtmePercent < policy.minPostUtmePercent) {
+    return null;
+  }
+
+  const rule = catalog.ruleByUniversityId.get(course.universityId) ?? null;
+  const status = classifyStatus(candidate, rule);
+  const percent = needsPostUtmeScore(policy) ? (postUtmePercent ?? 0) : 0;
+  const { aggregate, utmePercent, oLevelPercent } = scoreCandidate(candidate, policy, requirement, {
+    rawScore: round((percent / 100) * policy.postUtmeMaxScore),
+    percent,
+  });
+  const cutOff = resolveApplicableCutOff(course, status, candidate, rule, aggregate);
+  if (!cutOff) return null;
+  const { meetsCutOff, margin } = compareWithCutOff(cutOff, aggregate, candidate.utmeScore);
+
+  return {
+    course,
+    status,
+    aggregate,
+    utmePercent,
+    postUtmePercent: needsPostUtmeScore(policy) ? percent : null,
+    oLevelPercent,
+    cutOff,
+    meetsCutOff,
+    margin,
+  };
 }
 
 export interface AssessmentContext {
@@ -727,8 +770,4 @@ export async function buildAssessmentContext(candidate: CandidateProfileInput): 
 function round(n: number, dp = 1) {
   const f = 10 ** dp;
   return Math.round(n * f) / f;
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, n));
 }

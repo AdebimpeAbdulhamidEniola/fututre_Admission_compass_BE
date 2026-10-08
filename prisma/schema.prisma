@@ -100,8 +100,9 @@ model Course {
   /// then compared against it instead of their aggregate.
   utmeCutOff Int?
 
-  requirement    AdmissionRequirement?
-  assessments    AssessmentReport[]
+  requirement     AdmissionRequirement?
+  assessments     AssessmentReport[]
+  recommendations Recommendation[]
 
   @@unique([universityId, name])
   @@map("courses")
@@ -196,8 +197,9 @@ model CandidateProfile {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  oLevelResults OLevelResult[]
-  assessments   AssessmentReport[]
+  oLevelResults   OLevelResult[]
+  assessments     AssessmentReport[]
+  recommendations Recommendation[]
 
   @@map("candidate_profiles")
 }
@@ -230,8 +232,31 @@ model AssessmentReport {
   recommendations Json // CourseRecommendation[]
   context         Json // AssessmentContext
 
+  recommendationRows Recommendation[]
+
   @@index([candidateProfileId])
   @@map("assessment_reports")
+}
+
+/// One alternative course the ML Decision Tree recommended to a candidate (thesis ERD:
+/// RECOMMENDATION — CandidateID, SuggestedCourseID, MatchProbability). Also kept inside
+/// AssessmentReport.recommendations as JSON for the results page; these rows are for querying.
+model Recommendation {
+  id                 String            @id @default(cuid())
+  candidateProfileId String
+  candidateProfile   CandidateProfile  @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+  /// Null when the recommendation came from POST /recommendations rather than a saved assessment.
+  assessmentReportId String?
+  assessmentReport   AssessmentReport? @relation(fields: [assessmentReportId], references: [id], onDelete: Cascade)
+  courseId           String
+  course             Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  rank               Int
+  matchProbability   Float
+  lowConfidence      Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+
+  @@index([candidateProfileId])
+  @@map("recommendations")
 }
 
 model AdminLogEntry {

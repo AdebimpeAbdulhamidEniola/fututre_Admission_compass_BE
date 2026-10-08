@@ -2,7 +2,7 @@
   "name": "placeright-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Express.js backend for PlaceRight — a decision-support system for university admission placement in Nigeria.",
+  "description": "Express.js backend for PlaceRight \u2014 a decision-support system for university admission placement in Nigeria.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -18,7 +18,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "ml:train": "tsx src/modules/recommender/train.cli.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -31,6 +32,7 @@
     "express": "^4.21.2",
     "helmet": "^7.2.0",
     "jsonwebtoken": "^9.0.2",
+    "ml-cart": "^2.1.1",
     "pino": "^9.5.0",
     "pino-http": "^10.3.0",
     "zod": "^3.23.8"

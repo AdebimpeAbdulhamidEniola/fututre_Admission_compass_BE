@@ -5,6 +5,7 @@ import { ApiError } from "../../lib/errors.js";
 import type { CandidateProfileInput } from "../assessment/candidate-profile.schema.js";
 import * as engine from "../assessment/engine.js";
 import { withEvaluationLog } from "../assessment/evaluation-logger.js";
+import { recommendCourses, saveRecommendations } from "../recommender/recommender.js";
 
 /** Matches AssessmentReport in the frontend's src/types/domain.ts. */
 function serializeReport(report: PrismaAssessmentReport) {
@@ -45,8 +46,9 @@ export async function createAssessment(userId: string, candidate: CandidateProfi
   const score = (await engine.canComputeAggregate(candidate))
     ? await withEvaluationLog("SCORING", candidate.id, () => engine.computeAggregate(candidate))
     : null;
+  // Only for a candidate who passed the eligibility checks but scored below the cut-off.
   const recommendations = await withEvaluationLog("RECOMMENDATION", candidate.id, () =>
-    engine.recommendCourses(candidate),
+    recommendCourses(candidate, { verification, score }),
   );
 
   const report = await prisma.assessmentReport.create({
@@ -60,6 +62,7 @@ export async function createAssessment(userId: string, candidate: CandidateProfi
       context,
     },
   });
+  await saveRecommendations(candidateProfileId, recommendations, report.id);
 
   return serializeReport(report);
 }

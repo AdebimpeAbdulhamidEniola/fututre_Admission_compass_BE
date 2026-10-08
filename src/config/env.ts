@@ -25,4 +25,7 @@ export const env = {
   // Stage 2 — auth
   jwtSecret: required("JWT_SECRET"),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
+
+  // Stage 8 — ML recommender. Relative paths resolve from the working directory.
+  recommenderModelPath: process.env.RECOMMENDER_MODEL_PATH ?? "models/recommender-model.json",
 };
