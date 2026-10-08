@@ -319,7 +319,7 @@ export async function classifyCatchment(candidate: CandidateProfileInput): Promi
     return {
       status: "ELDS",
       reason: `${candidate.stateOfOrigin} is on the Educationally Less Developed States list.`,
-      explanation: `Candidates from ELDS states compete for a reserved ${rule.eldsQuotaPercent}% of places at ${uniName}, usually at a lower cut-off than merit candidates.`,
+      explanation: `Candidates from ELDS states compete for a reserved ${rule.eldsQuotaPercent}% of places at ${uniName}, usually at a lower cut-off than merit candidates. You are still considered for merit places first.`,
       quotaSharePercent: rule.eldsQuotaPercent,
     };
   }
@@ -389,27 +389,43 @@ interface ApplicableCutOff {
 }
 
 /**
- * The cut-off this candidate is actually judged against. A published 0–100 cut-off for their
- * status wins; failing that, a course that only publishes a raw JAMB cut-off (Course.utmeCutOff —
- * FUNAAB) is judged on the candidate's UTME score instead. Null when neither exists yet.
+ * The cut-off this candidate is actually judged against. Catchment and ELDS candidates are
+ * considered for merit places first, so clearing the merit cut-off is enough for them; otherwise
+ * their own status's cut-off applies, falling back to the merit cut-off when the university
+ * publishes no separate catchment/ELDS figure for the course (UNILAG, FUTA, FUOYE mostly don't).
+ * A course with no 0–100 cut-off at all but a raw JAMB cut-off (Course.utmeCutOff — FUNAAB) is
+ * judged on the candidate's UTME score instead. Null when nothing is published yet.
  */
 function resolveApplicableCutOff(
   course: Course,
   status: CatchmentStatus,
   candidate: CandidateProfileInput,
   rule: CatchmentRule | null,
+  aggregate: number,
 ): ApplicableCutOff | null {
-  const resolved = resolveCutOff(course, status, candidate, rule);
-  if (resolved.value !== null) {
-    return { value: resolved.value, type: status, basis: "AGGREGATE", state: resolved.state };
+  const merit = course.meritCutOff;
+  const meritCutOff = (value: number): ApplicableCutOff => ({
+    value,
+    type: "MERIT",
+    basis: "AGGREGATE",
+    state: null,
+  });
+  if (status === "MERIT") {
+    if (merit !== null) return meritCutOff(merit);
+  } else {
+    if (merit !== null && aggregate >= merit) return meritCutOff(merit);
+    const resolved = resolveCutOff(course, status, candidate, rule);
+    if (resolved.value !== null) {
+      return { value: resolved.value, type: status, basis: "AGGREGATE", state: resolved.state };
+    }
+    if (merit !== null) return meritCutOff(merit);
   }
-  if (course.utmeCutOff !== null) {
+  if (course.utmeCutOff != null) {
     return { value: course.utmeCutOff, type: status, basis: "UTME", state: null };
   }
   return null;
 }
 
-/** No cut-off at all for this course/status — surface that clearly instead of silently comparing against 0. */
 function requireApplicableCutOff(cutOff: ApplicableCutOff | null, courseName: string, status: CatchmentStatus) {
   if (cutOff === null) {
     throw badRequest(
@@ -569,7 +585,7 @@ export async function computeAggregate(candidate: CandidateProfileInput): Promis
   });
 
   const cutOff = requireApplicableCutOff(
-    resolveApplicableCutOff(course, catchment.status, candidate, rule),
+    resolveApplicableCutOff(course, catchment.status, candidate, rule, aggregate),
     course.name,
     catchment.status,
   );
