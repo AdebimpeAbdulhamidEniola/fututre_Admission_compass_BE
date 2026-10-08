@@ -1,8 +1,8 @@
 /**
  * Alternative-course recommendations (Module 4). Runs only for a candidate who passed the subject
  * and O'Level checks for their chosen course but scored below its cut-off (thesis §3.2.2). Every
- * other course they're also eligible for is scored with that course's own university formula, then
- * ranked by the Decision Tree's estimated probability of admission.
+ * other course at the same university that they're also eligible for is scored with that
+ * university's formula, then ranked by the Decision Tree's estimated probability of admission.
  */
 import { prisma } from "../../db/client.js";
 import type { CandidateProfileInput } from "../assessment/candidate-profile.schema.js";
@@ -40,21 +40,18 @@ function round(n: number, dp = 1) {
 function rationaleFor(
   evaluation: engine.CourseEvaluation,
   candidateScore: number,
-  postUtmeAssumed: boolean,
   lowConfidence: boolean,
 ) {
   const { cutOff, margin, course } = evaluation;
   const what = cutOff.basis === "UTME" ? "UTME score" : "aggregate";
-  const cutOffName = cutOff.basis === "UTME" ? "JAMB cut-off" : `${cutOff.type.toLowerCase()} cut-off`;
+  const cutOffName =
+    cutOff.basis === "UTME" ? "JAMB cut-off" : `${cutOff.type.toLowerCase()} cut-off`;
   const lines = [
     margin >= 0
       ? `Your ${what} of ${candidateScore} is ${round(margin)} point(s) above the ${cutOff.value} ${cutOffName}.`
       : `Your ${what} of ${candidateScore} is ${Math.abs(round(margin))} point(s) short of the ${cutOff.value} ${cutOffName}.`,
     `${course.university.name} classifies you as ${evaluation.status.toLowerCase()} and its formula gives you ${evaluation.aggregate}/100.`,
   ];
-  if (postUtmeAssumed) {
-    lines.push(`Assumes you score the same percentage in ${course.university.code}'s Post-UTME as in your current one.`);
-  }
   if (lowConfidence) {
     lines.push("Few comparable profiles in the training data — treat this match as a rough guide.");
   }
@@ -79,22 +76,30 @@ export async function recommendCourses(
       : null;
 
   const ranked = catalog.courses
-    .filter((course) => course.id !== candidate.targetCourseId)
+    // Same university only: each university applies its own formula and cut-offs, so alternatives
+    // elsewhere would be judged on scores (e.g. a Post-UTME) the candidate doesn't have there.
+    .filter(
+      (course) =>
+        course.universityId === candidate.targetUniversityId &&
+        course.id !== candidate.targetCourseId,
+    )
     .map((course) => engine.evaluateCourse(candidate, postUtmePercent, course, catalog))
     .filter((evaluation): evaluation is engine.CourseEvaluation => evaluation !== null)
     .map((evaluation) => {
-      const probability = model.predictProbability(toFeatures(evaluation, candidate.oLevelSittings));
-      const lowConfidence = (model.saved.rowsPerCourse[evaluation.course.id] ?? 0) < MIN_TRAINING_ROWS;
-      const candidateScore = evaluation.cutOff.basis === "UTME" ? candidate.utmeScore : evaluation.aggregate;
-      const postUtmeAssumed =
-        evaluation.postUtmePercent !== null && evaluation.course.universityId !== candidate.targetUniversityId;
-      return { evaluation, probability, lowConfidence, candidateScore, postUtmeAssumed };
+      const probability = model.predictProbability(
+        toFeatures(evaluation, candidate.oLevelSittings),
+      );
+      const lowConfidence =
+        (model.saved.rowsPerCourse[evaluation.course.id] ?? 0) < MIN_TRAINING_ROWS;
+      const candidateScore =
+        evaluation.cutOff.basis === "UTME" ? candidate.utmeScore : evaluation.aggregate;
+      return { evaluation, probability, lowConfidence, candidateScore };
     })
     // Most likely admission first; between equal estimates, the bigger cut-off margin.
     .sort((a, b) => b.probability - a.probability || b.evaluation.margin - a.evaluation.margin)
     .slice(0, MAX_RECOMMENDATIONS);
 
-  return ranked.map(({ evaluation, probability, lowConfidence, candidateScore, postUtmeAssumed }, i) => ({
+  return ranked.map(({ evaluation, probability, lowConfidence, candidateScore }, i) => ({
     rank: i + 1,
     courseId: evaluation.course.id,
     courseName: evaluation.course.name,
@@ -105,7 +110,7 @@ export async function recommendCourses(
     candidateScore,
     cutOffBasis: evaluation.cutOff.basis,
     lowConfidence,
-    rationale: rationaleFor(evaluation, candidateScore, postUtmeAssumed, lowConfidence),
+    rationale: rationaleFor(evaluation, candidateScore, lowConfidence),
   }));
 }
 
