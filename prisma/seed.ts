@@ -183,6 +183,41 @@ const FUOYE_REQUIREMENTS: Record<string, Partial<RequirementTemplate>> = {
     optionalUtmeSubjects: ["Government", "Commerce", "Economics", "Civic Education", "History", "Geography", "Christian Religious Studies", "Islamic Religious Studies"],
     requiredOLevelSubjects: ["English Language", "Mathematics", "Literature in English"],
   },
+  // Arts, social sciences and Law — second research pass (Likely; Philosophy still Uncertain, so it
+  // keeps the template). "Government or History" style rules can't be required in UTME, so both go
+  // in optionalUtmeSubjects; in O'Level, History is a substitution for Government.
+  Law: {
+    requiredUtmeSubjects: ["Literature in English"],
+    optionalUtmeSubjects: ["Government", "History", "Economics", "Christian Religious Studies", "Islamic Religious Studies", "Yoruba"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Literature in English"],
+  },
+  "History and International Studies": {
+    requiredUtmeSubjects: ["Government"],
+    optionalUtmeSubjects: ["History", "Literature in English", "Christian Religious Studies", "Islamic Religious Studies", "Yoruba", "Igbo", "Geography", "Economics"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Government"],
+    oLevelSubstitutions: [{ subject: "Government", alternatives: ["History"], countsTowardPoints: true }],
+  },
+  "Linguistics and Languages": {
+    requiredUtmeSubjects: [],
+    optionalUtmeSubjects: ["Literature in English", "History", "Government", "Christian Religious Studies", "Islamic Religious Studies", "Yoruba", "Hausa", "Igbo", "French", "Civic Education", "Economics"],
+    requiredOLevelSubjects: ["English Language", "Mathematics"],
+  },
+  "Religious Studies": {
+    requiredUtmeSubjects: [],
+    optionalUtmeSubjects: ["Christian Religious Studies", "Islamic Religious Studies", "Yoruba", "Igbo", "Hausa", "History", "Literature in English", "Government"],
+    requiredOLevelSubjects: ["English Language", "Mathematics"],
+  },
+  Economics: {
+    requiredUtmeSubjects: ["Mathematics", "Economics"],
+    optionalUtmeSubjects: ["Government", "History", "Geography", "Literature in English", "French", "Christian Religious Studies", "Islamic Religious Studies"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Economics"],
+  },
+  "Political Science": {
+    requiredUtmeSubjects: [],
+    optionalUtmeSubjects: ["Government", "History", "Mathematics", "Economics", "Geography", "Civic Education", "Literature in English"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Government"],
+    oLevelSubstitutions: [{ subject: "Government", alternatives: ["History"], countsTowardPoints: true }],
+  },
   "Animal Production and Health": FUOYE_AGRICULTURE,
   "Crop Science and Horticulture": FUOYE_AGRICULTURE,
   "Agricultural Economics and Extension": FUOYE_AGRICULTURE,
