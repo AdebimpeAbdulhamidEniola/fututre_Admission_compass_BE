@@ -114,6 +114,10 @@ model AdmissionRequirement {
   course                 Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   requiredUtmeSubjects   String[]
   optionalUtmeSubjects   String[]
+  /// "One of" rules for UTME, e.g. [["Biology", "Agricultural Science"], ["Mathematics", "Physics"]]:
+  /// the candidate needs at least one subject from each group. Group subjects should also be listed
+  /// in optionalUtmeSubjects, since every UTME subject must be on the accepted list.
+  utmeSubjectGroups      Json     @default("[]")
   requiredOLevelSubjects String[]
   minimumCredits         Int
 

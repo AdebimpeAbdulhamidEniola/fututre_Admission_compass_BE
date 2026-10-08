@@ -32,6 +32,7 @@ export const requirementSchema = z.object({
   courseId: z.string().min(1),
   requiredUtmeSubjects: z.array(z.string().min(1)),
   optionalUtmeSubjects: z.array(z.string().min(1)),
+  utmeSubjectGroups: z.array(z.array(z.string().trim().min(1)).min(1)).optional(),
   requiredOLevelSubjects: z.array(z.string().min(1)),
   minimumCredits: z.number().int().min(0).max(9),
   oLevelSubstitutions: z

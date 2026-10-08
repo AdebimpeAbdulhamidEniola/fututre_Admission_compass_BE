@@ -44,9 +44,19 @@ type OLevelResultInput = CandidateProfileInput["oLevelResults"][number];
 interface RequirementRules {
   requiredUtmeSubjects: string[];
   optionalUtmeSubjects: string[];
+  utmeSubjectGroups: unknown;
   requiredOLevelSubjects: string[];
   minimumCredits: number;
   oLevelSubstitutions: unknown;
+}
+
+/** Prisma's Json comes back untyped — keep only arrays of subject names. */
+function asSubjectGroups(value: unknown): string[][] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((group): group is unknown[] => Array.isArray(group))
+    .map((group) => group.filter((s): s is string => typeof s === "string"))
+    .filter((group) => group.length > 0);
 }
 
 export interface OLevelSubstitution {
@@ -88,12 +98,27 @@ function bestResultsBySubject(results: OLevelResultInput[]): Map<string, OLevelR
   return best;
 }
 
+/**
+ * JAMB requires every UTME subject to fit the course: all compulsory subjects present, at least one
+ * subject from each "one of" group, and no subject outside the accepted list. Any of these failing
+ * makes the combination invalid for the course. Unmet groups are reported as "A or B" in `missing`.
+ */
 function checkUtmeSubjects(utmeSubjects: string[], requirement: RequirementRules) {
   const subjects = utmeSubjects.filter((s) => s !== "Use of English");
-  const allowed = [...requirement.requiredUtmeSubjects, ...requirement.optionalUtmeSubjects];
-  const missing = requirement.requiredUtmeSubjects.filter((s) => !subjects.includes(s));
+  const groups = asSubjectGroups(requirement.utmeSubjectGroups);
+  const allowed = [
+    ...requirement.requiredUtmeSubjects,
+    ...requirement.optionalUtmeSubjects,
+    ...groups.flat(),
+  ];
+  const missing = [
+    ...requirement.requiredUtmeSubjects.filter((s) => !subjects.includes(s)),
+    ...groups
+      .filter((group) => !group.some((s) => subjects.includes(s)))
+      .map((group) => group.join(" or ")),
+  ];
   const invalid = subjects.filter((s) => !allowed.includes(s));
-  return { passed: missing.length === 0, missing, invalid };
+  return { passed: missing.length === 0 && invalid.length === 0, missing, invalid };
 }
 
 interface UsedSubstitution {
@@ -214,7 +239,9 @@ export interface VerificationResult {
   issues: VerificationIssue[];
 }
 
-export async function verifyEligibility(candidate: CandidateProfileInput): Promise<VerificationResult> {
+export async function verifyEligibility(
+  candidate: CandidateProfileInput,
+): Promise<VerificationResult> {
   const [requirement, policy, university] = await Promise.all([
     prisma.admissionRequirement.findUnique({ where: { courseId: candidate.targetCourseId } }),
     prisma.scoringPolicy.findUnique({ where: { universityId: candidate.targetUniversityId } }),
@@ -234,15 +261,17 @@ export async function verifyEligibility(candidate: CandidateProfileInput): Promi
     issues.push({
       code: "UTME_SUBJECT_MISSING",
       severity: "ERROR",
-      message: `${s} is a compulsory UTME subject for this course but is not in your combination.`,
+      message: s.includes(" or ")
+        ? `You need ${s} in your UTME combination for this course.`
+        : `${s} is a compulsory UTME subject for this course but is not in your combination.`,
       field: "utmeSubjects",
     }),
   );
   utme.invalid.forEach((s) =>
     issues.push({
       code: "UTME_SUBJECT_NOT_ACCEPTED",
-      severity: "WARNING",
-      message: `${s} is not among the subjects accepted for this course, so it will not count.`,
+      severity: "ERROR",
+      message: `${s} is not among the UTME subjects accepted for this course. All three subjects besides Use of English must be on the course's list.`,
       field: "utmeSubjects",
     }),
   );
@@ -304,7 +333,11 @@ export async function verifyEligibility(candidate: CandidateProfileInput): Promi
     eligible: utme.passed && oLevel.passed && postUtmePassed,
     checkedAt: new Date().toISOString(),
     utmeSubjectCheck: { passed: utme.passed, missing: utme.missing, invalid: utme.invalid },
-    oLevelCheck: { passed: oLevel.passed, missingCredits: oLevel.missingCredits, creditCount: oLevel.creditCount },
+    oLevelCheck: {
+      passed: oLevel.passed,
+      missingCredits: oLevel.missingCredits,
+      creditCount: oLevel.creditCount,
+    },
     issues,
   };
 }
@@ -332,7 +365,9 @@ export function classifyStatus(
   return "MERIT";
 }
 
-export async function classifyCatchment(candidate: CandidateProfileInput): Promise<CatchmentResult> {
+export async function classifyCatchment(
+  candidate: CandidateProfileInput,
+): Promise<CatchmentResult> {
   const [rule, university] = await Promise.all([
     prisma.catchmentRule.findUnique({ where: { universityId: candidate.targetUniversityId } }),
     prisma.university.findUnique({ where: { id: candidate.targetUniversityId } }),
@@ -365,10 +400,14 @@ export async function classifyCatchment(candidate: CandidateProfileInput): Promi
 }
 
 /** Which of the candidate's two states actually matched the catchment list — mirrors classifyCatchment's own matching order. */
-function matchedCatchmentState(candidate: CandidateProfileInput, rule: CatchmentRule | null): string | null {
+function matchedCatchmentState(
+  candidate: CandidateProfileInput,
+  rule: CatchmentRule | null,
+): string | null {
   if (!rule) return null;
   if (rule.catchmentStates.includes(candidate.stateOfOrigin)) return candidate.stateOfOrigin;
-  if (rule.catchmentStates.includes(candidate.schoolLocationState)) return candidate.schoolLocationState;
+  if (rule.catchmentStates.includes(candidate.schoolLocationState))
+    return candidate.schoolLocationState;
   return null;
 }
 
@@ -393,7 +432,9 @@ function resolveCutOff(
   if (status === "ELDS") {
     const state = candidate.stateOfOrigin;
     const specific = asCutOffMap(course.eldsCutOffByState)?.[state];
-    return specific !== undefined ? { value: specific, state } : { value: course.eldsCutOff, state: null };
+    return specific !== undefined
+      ? { value: specific, state }
+      : { value: course.eldsCutOff, state: null };
   }
   const state = matchedCatchmentState(candidate, rule);
   const specific = state ? asCutOffMap(course.catchmentCutOffByState)?.[state] : undefined;
@@ -447,7 +488,11 @@ function resolveApplicableCutOff(
   return null;
 }
 
-function requireApplicableCutOff(cutOff: ApplicableCutOff | null, courseName: string, status: CatchmentStatus) {
+function requireApplicableCutOff(
+  cutOff: ApplicableCutOff | null,
+  courseName: string,
+  status: CatchmentStatus,
+) {
   if (cutOff === null) {
     throw badRequest(
       `No confirmed ${status.toLowerCase()} cut-off is available yet for "${courseName}" — see docs/jamb-data-dossier.md.`,
@@ -466,7 +511,12 @@ export type CutOffBasis = "AGGREGATE" | "UTME";
 
 export interface AggregateScoreResult {
   aggregate: number;
-  breakdown: { component: ScoreComponent; rawScore: number; weighting: number; contribution: number }[];
+  breakdown: {
+    component: ScoreComponent;
+    rawScore: number;
+    weighting: number;
+    contribution: number;
+  }[];
   formulaDescription: string;
   applicableCutOff: number;
   cutOffType: CatchmentStatus;
@@ -510,7 +560,11 @@ function scoreCandidate(
   postUtme: { rawScore: number; percent: number },
 ) {
   const utmePercent = (candidate.utmeScore / policy.utmeMaxScore) * 100;
-  const { points: oLevelPoints, percent: oLevelPercent } = scoreOLevel(candidate, requirement, policy);
+  const { points: oLevelPoints, percent: oLevelPercent } = scoreOLevel(
+    candidate,
+    requirement,
+    policy,
+  );
 
   const breakdown: AggregateScoreResult["breakdown"] = [
     {
@@ -548,7 +602,9 @@ function scoreCandidate(
     `UTME ${policy.utmeWeighting}%`,
     ...(policy.postUtmeWeighting > 0 ? [`Post-UTME ${policy.postUtmeWeighting}%`] : []),
     ...(policy.oLevelWeighting > 0 ? [`O'Level ${policy.oLevelWeighting}%`] : []),
-    ...(bonus ? [`sitting bonus ${bonus.oneSitting}% (${bonus.twoSittings} for two sittings)`] : []),
+    ...(bonus
+      ? [`sitting bonus ${bonus.oneSitting}% (${bonus.twoSittings} for two sittings)`]
+      : []),
   ];
 
   return {
@@ -581,11 +637,15 @@ async function loadCourseAndPolicy(candidate: CandidateProfileInput) {
 /** Whether an aggregate can be computed yet: false only when the formula needs a Post-UTME score the candidate doesn't have. */
 export async function canComputeAggregate(candidate: CandidateProfileInput) {
   if (candidate.postUtmeScore !== null) return true;
-  const policy = await prisma.scoringPolicy.findUnique({ where: { universityId: candidate.targetUniversityId } });
+  const policy = await prisma.scoringPolicy.findUnique({
+    where: { universityId: candidate.targetUniversityId },
+  });
   return !policy || !needsPostUtmeScore(policy);
 }
 
-export async function computeAggregate(candidate: CandidateProfileInput): Promise<AggregateScoreResult> {
+export async function computeAggregate(
+  candidate: CandidateProfileInput,
+): Promise<AggregateScoreResult> {
   const { policy, course, requirement } = await loadCourseAndPolicy(candidate);
 
   if (needsPostUtmeScore(policy) && candidate.postUtmeScore === null) {
@@ -602,10 +662,15 @@ export async function computeAggregate(candidate: CandidateProfileInput): Promis
   ]);
 
   const postUtmeRaw = candidate.postUtmeScore ?? 0;
-  const { aggregate, breakdown, formulaDescription } = scoreCandidate(candidate, policy, requirement, {
-    rawScore: postUtmeRaw,
-    percent: (postUtmeRaw / policy.postUtmeMaxScore) * 100,
-  });
+  const { aggregate, breakdown, formulaDescription } = scoreCandidate(
+    candidate,
+    policy,
+    requirement,
+    {
+      rawScore: postUtmeRaw,
+      percent: (postUtmeRaw / policy.postUtmeMaxScore) * 100,
+    },
+  );
 
   const cutOff = requireApplicableCutOff(
     resolveApplicableCutOff(course, catchment.status, candidate, rule, aggregate),
@@ -675,7 +740,11 @@ export function evaluateCourse(
   const policy = catalog.policyByUniversityId.get(course.universityId);
   if (!requirement || !policy || !meetsRequirement(candidate, requirement)) return null;
   if (needsPostUtmeScore(policy) && postUtmePercent === null) return null;
-  if (policy.minPostUtmePercent != null && postUtmePercent !== null && postUtmePercent < policy.minPostUtmePercent) {
+  if (
+    policy.minPostUtmePercent != null &&
+    postUtmePercent !== null &&
+    postUtmePercent < policy.minPostUtmePercent
+  ) {
     return null;
   }
 
@@ -727,7 +796,9 @@ export interface AssessmentContext {
   quotaPercents: { merit: number; catchment: number; elds: number };
 }
 
-export async function buildAssessmentContext(candidate: CandidateProfileInput): Promise<AssessmentContext> {
+export async function buildAssessmentContext(
+  candidate: CandidateProfileInput,
+): Promise<AssessmentContext> {
   const [course, university, requirement, rule] = await Promise.all([
     prisma.course.findUnique({ where: { id: candidate.targetCourseId } }),
     prisma.university.findUnique({ where: { id: candidate.targetUniversityId } }),
