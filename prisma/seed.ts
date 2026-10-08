@@ -742,11 +742,11 @@ const UNIVERSITIES: UniversitySeed[] = [
   },
 
   // ============================================================================================
-  // FUOYE — UTME floors Likely, cross-confirmed against FUOYE's own 2026/27 admission-requirements
-  // document for most courses; only the 0–100 Aggregate column is used here (see SCALE NOTE).
-  // "Law" is seeded (a real number, 150-floor era aggregate is unknown → null); its faculty's
-  // existence is user-verified real despite being absent from FUOYE's own otherwise-exhaustive
-  // 14-faculty admission-requirements document.
+  // FUOYE — cut-offs are its 2025/26 Post-UTME departmental cut-offs (0–100), from
+  // news.fuoye.edu.ng "FUOYE releases 2025/2026 Post-UTME screening cut-off marks", read via
+  // search-index text quoting that page, not the page itself. Most rows Likely; engineering and
+  // the physical/life sciences Uncertain — see docs/jamb-data-dossier.md. One cut-off per course
+  // (no separate catchment/ELDS figures). Law is not admitting for 2026/27.
   // Catchment states Likely (Ekiti/Ondo/Osun/Oyo); no catchment/ELDS cut-off numbers published —
   // null for every course.
   // O'Level grade table: Likely, A1=6..C6=1 (max 30) - NOT the engine's generic A1=10..C6=5 (max
@@ -774,43 +774,43 @@ const UNIVERSITIES: UniversitySeed[] = [
       eldsQuotaPercent: 20,
     },
     courses: [
-      c("Anatomy", "Clinical Sciences", 63.3, null, null),
-      c("Physiology", "Clinical Sciences", 61.5, null, null),
-      c("Nursing Science", "Clinical Sciences", 74.6, null, null),
-      c("Medical Laboratory Science", "Clinical Sciences", 72.3, null, null),
-      c("Radiography and Radiation Science", "Clinical Sciences", 71.3, null, null),
+      c("Anatomy", "Clinical Sciences", 66.15, null, null),
+      c("Physiology", "Clinical Sciences", 65.8, null, null),
+      c("Nursing Science", "Clinical Sciences", 78.55, null, null),
+      c("Medical Laboratory Science", "Clinical Sciences", 75.7, null, null),
+      c("Radiography and Radiation Science", "Clinical Sciences", 74.05, null, null),
       // 77.75 is FUOYE's 2025/26 Law departmental cut-off (Confirmed, news.fuoye.edu.ng). FUOYE is
       // not admitting into Law for 2026/27 (Confirmed, putme.fuoye.edu.ng).
       c("Law", "Law", 77.75, null, null),
-      c("Civil Engineering", "Engineering & Technology", 65.0, null, null),
-      c("Mechanical Engineering", "Engineering & Technology", 65.0, null, null),
-      c("Electrical and Electronic Engineering", "Engineering & Technology", 63.3, null, null),
-      c("Computer Engineering", "Engineering & Technology", 64.3, null, null),
-      c("Mechatronics Engineering", "Engineering & Technology", 65.0, null, null),
-      c("English and Literary Studies", "Arts", 66.3, null, null),
-      c("History and International Studies", "Arts", 67.8, null, null),
-      c("Linguistics and Languages", "Arts", 65.3, null, null),
-      c("Philosophy", "Arts", 57.2, null, null),
-      c("Religious Studies", "Arts", 55.0, null, null),
-      c("Economics", "Social & Management Sciences", 63.75, null, null),
-      c("Political Science", "Social & Management Sciences", 62.5, null, null),
-      c("Accounting", "Social & Management Sciences", 65.15, null, null),
-      c("Business Administration", "Social & Management Sciences", 65.45, null, null),
-      c("Mass Communication", "Social & Management Sciences", 66.3, null, null),
-      c("Computer Science", "Science", 61.95, null, null),
+      c("Civil Engineering", "Engineering & Technology", 66.25, null, null),
+      c("Mechanical Engineering", "Engineering & Technology", 66.4, null, null),
+      c("Electrical and Electronic Engineering", "Engineering & Technology", 66, null, null),
+      c("Computer Engineering", "Engineering & Technology", 65.9, null, null),
+      c("Mechatronics Engineering", "Engineering & Technology", 69.85, null, null),
+      c("English and Literary Studies", "Arts", 66.35, null, null),
+      c("History and International Studies", "Arts", 67.9, null, null),
+      c("Linguistics and Languages", "Arts", 63.7, null, null),
+      c("Philosophy", "Arts", 60.35, null, null),
+      c("Religious Studies", "Arts", 52.95, null, null),
+      c("Economics", "Social & Management Sciences", 64.55, null, null),
+      c("Political Science", "Social & Management Sciences", 67.05, null, null),
+      c("Accounting", "Social & Management Sciences", 71.25, null, null),
+      c("Business Administration", "Social & Management Sciences", 66.05, null, null),
+      c("Mass Communication", "Social & Management Sciences", 68.5, null, null),
+      c("Computer Science", "Science", 69.2, null, null),
       c("Biochemistry", "Science", 64.4, null, null),
-      c("Microbiology", "Science", 65.75, null, null),
-      c("Physics", "Science", 56.5, null, null),
-      c("Chemistry", "Science", 62.5, null, null),
-      c("Mathematics", "Science", 55.5, null, null),
-      c("Statistics", "Science", 54.5, null, null),
-      c("Animal Production and Health", "Agriculture", 57.7, null, null),
-      c("Crop Science and Horticulture", "Agriculture", 57.65, null, null),
-      c("Agricultural Economics and Extension", "Agriculture", 61.15, null, null),
-      c("Soil Science and Land Resources Management", "Agriculture", 56.65, null, null),
-      c("Fisheries and Aquaculture", "Agriculture", 57.15, null, null),
-      c("Food Science and Technology", "Agriculture", 60.9, null, null),
-      c("Water Resources Management and Agrometeorology", "Agriculture", 57.3, null, null),
+      c("Microbiology", "Science", 63.95, null, null),
+      c("Physics", "Science", 54.4, null, null),
+      c("Chemistry", "Science", 56.55, null, null),
+      c("Mathematics", "Science", 56.85, null, null),
+      c("Statistics", "Science", 54.8, null, null),
+      c("Animal Production and Health", "Agriculture", 58.1, null, null),
+      c("Crop Science and Horticulture", "Agriculture", 57.3, null, null),
+      c("Agricultural Economics and Extension", "Agriculture", 57.6, null, null),
+      c("Soil Science and Land Resources Management", "Agriculture", 52.4, null, null),
+      c("Fisheries and Aquaculture", "Agriculture", 57.3, null, null),
+      c("Food Science and Technology", "Agriculture", 60.95, null, null),
+      c("Water Resources Management and Agrometeorology", "Agriculture", 52.9, null, null),
     ],
   },
 ];
