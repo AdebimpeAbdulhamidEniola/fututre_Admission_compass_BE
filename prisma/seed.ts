@@ -128,11 +128,77 @@ const ENGLISH_MATHS_PHYSICS_CHEMISTRY = ["English Language", "Mathematics", "Phy
 const FUTA_COMPUTING_COURSES = new Set(["Computer Science", "Cybersecurity"]);
 
 /**
+ * FUOYE's own 2025/26 programme screening requirements (ecampus.fuoye.edu.ng/putme/cutoff, plus the
+ * 2026/27 table at putme.fuoye.edu.ng/utme for the Agriculture faculty and Physics) — read from
+ * search-index text of the official pages, not the pages themselves. Only courses whose lists came
+ * through cleanly are here; the rest keep the per-faculty template. Where FUOYE accepts one of two
+ * UTME subjects (e.g. "Biology/Agriculture"), both go in optionalUtmeSubjects, because the engine
+ * has no "one of" rule for UTME. O'Level "Biology or Agricultural Science" is a substitution.
+ */
+const SCIENCE_UTME_HEALTH: Partial<RequirementTemplate> = {
+  requiredUtmeSubjects: ["Physics", "Chemistry", "Biology"],
+  optionalUtmeSubjects: [],
+};
+const SCIENCE_UTME_PHYSICAL: Partial<RequirementTemplate> = {
+  requiredUtmeSubjects: ["Mathematics", "Physics", "Chemistry"],
+  optionalUtmeSubjects: [],
+};
+const OLEVEL_HEALTH = ["English Language", "Mathematics", "Biology", "Physics", "Chemistry"];
+const OLEVEL_PHYSICAL = ["English Language", "Mathematics", "Physics", "Chemistry"];
+const FUOYE_AGRICULTURE: Partial<RequirementTemplate> = {
+  requiredUtmeSubjects: ["Chemistry"],
+  optionalUtmeSubjects: ["Biology", "Agricultural Science", "Mathematics", "Physics"],
+  requiredOLevelSubjects: ["English Language", "Mathematics", "Chemistry", "Physics", "Biology"],
+  oLevelSubstitutions: [{ subject: "Biology", alternatives: ["Agricultural Science"], countsTowardPoints: true }],
+};
+
+const FUOYE_REQUIREMENTS: Record<string, Partial<RequirementTemplate>> = {
+  Anatomy: { ...SCIENCE_UTME_HEALTH, requiredOLevelSubjects: OLEVEL_HEALTH },
+  Physiology: { ...SCIENCE_UTME_HEALTH, requiredOLevelSubjects: OLEVEL_HEALTH },
+  "Nursing Science": { ...SCIENCE_UTME_HEALTH, requiredOLevelSubjects: OLEVEL_HEALTH },
+  "Medical Laboratory Science": { ...SCIENCE_UTME_HEALTH, requiredOLevelSubjects: OLEVEL_HEALTH },
+  "Radiography and Radiation Science": { ...SCIENCE_UTME_HEALTH, requiredOLevelSubjects: OLEVEL_HEALTH },
+  "Civil Engineering": { ...SCIENCE_UTME_PHYSICAL, requiredOLevelSubjects: OLEVEL_PHYSICAL },
+  "Mechanical Engineering": { ...SCIENCE_UTME_PHYSICAL, requiredOLevelSubjects: OLEVEL_PHYSICAL },
+  "Electrical and Electronic Engineering": { ...SCIENCE_UTME_PHYSICAL, requiredOLevelSubjects: OLEVEL_PHYSICAL },
+  "Computer Engineering": { ...SCIENCE_UTME_PHYSICAL, requiredOLevelSubjects: OLEVEL_PHYSICAL },
+  "Mechatronics Engineering": { ...SCIENCE_UTME_PHYSICAL, requiredOLevelSubjects: OLEVEL_PHYSICAL },
+  "Computer Science": { ...SCIENCE_UTME_PHYSICAL, requiredOLevelSubjects: OLEVEL_PHYSICAL },
+  Physics: { ...SCIENCE_UTME_PHYSICAL, requiredOLevelSubjects: OLEVEL_PHYSICAL },
+  Mathematics: SCIENCE_UTME_PHYSICAL,
+  Chemistry: { requiredUtmeSubjects: ["Chemistry", "Physics"], optionalUtmeSubjects: ["Biology", "Mathematics"] },
+  Statistics: { requiredUtmeSubjects: ["Mathematics"], optionalUtmeSubjects: ["Physics", "Chemistry", "Economics"] },
+  Biochemistry: SCIENCE_UTME_HEALTH,
+  Microbiology: SCIENCE_UTME_HEALTH,
+  "English and Literary Studies": {
+    requiredUtmeSubjects: ["Literature in English"],
+    optionalUtmeSubjects: ["History", "Government", "Christian Religious Studies", "Islamic Religious Studies", "Yoruba", "Hausa", "Igbo", "French"],
+  },
+  "Business Administration": {
+    requiredUtmeSubjects: ["Mathematics", "Economics"],
+    optionalUtmeSubjects: ["Principles of Accounts", "Commerce", "Government", "Geography"],
+  },
+  "Mass Communication": {
+    requiredUtmeSubjects: ["Literature in English"],
+    optionalUtmeSubjects: ["Government", "Commerce", "Economics", "Civic Education", "History", "Geography", "Christian Religious Studies", "Islamic Religious Studies"],
+    requiredOLevelSubjects: ["English Language", "Mathematics", "Literature in English"],
+  },
+  "Animal Production and Health": FUOYE_AGRICULTURE,
+  "Crop Science and Horticulture": FUOYE_AGRICULTURE,
+  "Agricultural Economics and Extension": FUOYE_AGRICULTURE,
+  "Soil Science and Land Resources Management": FUOYE_AGRICULTURE,
+  "Fisheries and Aquaculture": FUOYE_AGRICULTURE,
+  "Food Science and Technology": FUOYE_AGRICULTURE,
+  "Water Resources Management and Agrometeorology": { ...FUOYE_AGRICULTURE, ...SCIENCE_UTME_PHYSICAL },
+};
+
+/**
  * University-specific O'Level rules from the dossier, layered over the per-faculty template:
  * - FUTA (Likely, dossier FUTA section): SOS sciences need English, Mathematics, Physics,
  *   Chemistry + Biology or Agricultural Science; SAAT agriculture needs English, Mathematics,
  *   Chemistry + Biology or Agricultural Science (+ 1 more science). Agricultural Science is a full
  *   substitute there, so it scores like Biology would.
+ * - FUOYE: per-course lists from its own screening requirements — see FUOYE_REQUIREMENTS.
  * - FUNAAB (Confirmed, helpdesk.funaab.edu.ng Article ID 30): Core Sciences need English,
  *   Mathematics, Physics, Chemistry, Biology. Agriculture is accepted in lieu of Biology for
  *   eligibility but adds no O'Level points.
@@ -158,6 +224,10 @@ function requirementForCourse(universityCode: string, course: CourseSeed): Requi
       return { ...template, oLevelSubstitutions: biologyOrAgric };
     }
     return template;
+  }
+
+  if (universityCode === "FUOYE") {
+    return { ...template, ...FUOYE_REQUIREMENTS[course.name] };
   }
 
   if (universityCode === "FUNAAB") {
