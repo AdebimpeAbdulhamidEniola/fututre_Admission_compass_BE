@@ -104,13 +104,13 @@ Async route handlers must be wrapped in `asyncHandler` (`src/lib/async-handler.t
 
 ## Excel import (admin)
 
-`POST /admin/import/university/preview` and `POST /admin/import/university` (admin only) take `{ rows }` — one spreadsheet as a grid of cell values, read in the browser by the admin "Import (Excel)" page — and parse, validate and diff it (`src/modules/admin/import.service.ts`). Preview writes nothing; import re-validates and writes everything in one transaction, plus one `AdminLogEntry`.
+`POST /admin/import/university/preview` and `POST /admin/import/university` (admin only) take `{ university, courses }` — the workbook's two sheets as grids of cell values, read in the browser by the admin "Import (Excel)" page — and parse, validate and diff it (`src/modules/admin/import.service.ts`). Preview writes nothing; import re-validates and writes everything in one transaction, plus one `AdminLogEntry`.
 
-One sheet per university:
-- **University block** (column A field, column B value): `code, name, locationState, utmeWeighting, postUtmeWeighting, oLevelWeighting, utmeMaxScore, postUtmeMaxScore, minPostUtmePercent?, twoSittingDeductionPoints?, sittingBonusOneSitting?, sittingBonusTwoSittings?, gradePoints? (A1=6;B2=5;…), catchmentStates, eldsStates, meritQuota, catchmentQuota, eldsQuota`.
-- **Course table**: a header row starting `name | faculty`, then `requiredUtmeSubjects, optionalUtmeSubjects, utmeSubjectGroups (A|B; C|D), requiredOLevelSubjects, minimumCredits, oLevelSubstitutions (Biology=Agricultural Science[:nopoints])` and optional cut-offs `meritCutOff, catchmentCutOff, eldsCutOff, utmeCutOff, catchmentByState (Lagos=73.2;Ogun=71), eldsByState`. Lists use `;`. A blank cut-off cell keeps the current value; `none` clears it. A `notes` column is ignored.
+One workbook per university, two sheets:
+- **"University"** sheet (column A field, column B value, column C free notes; an optional `field | value | notes` heading row is skipped): `code, name, locationState, utmeWeighting, postUtmeWeighting, oLevelWeighting, utmeMaxScore, postUtmeMaxScore, minPostUtmePercent?, twoSittingDeductionPoints?, sittingBonusOneSitting?, sittingBonusTwoSittings?, gradePoints? (A1=6;B2=5;…), catchmentStates, eldsStates, meritQuota, catchmentQuota, eldsQuota`.
+- **"Courses"** sheet: a header row starting `name | faculty`, then `requiredUtmeSubjects, optionalUtmeSubjects, utmeSubjectGroups (A|B; C|D), requiredOLevelSubjects, minimumCredits, oLevelSubstitutions (Biology=Agricultural Science[:nopoints])` and optional cut-offs `meritCutOff, catchmentCutOff, eldsCutOff, utmeCutOff, catchmentByState (Lagos=73.2;Ogun=71), eldsByState`. Lists use `;`. A blank cut-off cell keeps the current value; `none` clears it. A `notes` column is ignored.
 
-Checks: required fields, numbers and ranges, weightings (+ sitting bonus) = 100, quotas = 100, valid grades, at most 3 required UTME subjects + groups, duplicate course names. Courses at the university that aren't in the file are never deleted. A filled FUOYE template lives in the frontend at `public/templates/university-import-template.xlsx`. Run `npm run ml:train` after importing new cut-offs.
+Checks: required fields, numbers and ranges, weightings (+ sitting bonus) = 100, quotas = 100, valid grades, at most 3 required UTME subjects + groups, duplicate course names. Courses at the university that aren't in the file are never deleted. A filled UI template lives in the frontend at `public/templates/university-import-template.xlsx`. Run `npm run ml:train` after importing new cut-offs.
 
 ## ML recommender
 

@@ -1,19 +1,26 @@
 import { z } from "zod";
 
 /**
- * Body of POST /admin/import/university(/preview): the uploaded sheet as a grid of cells, read in
- * the browser (read-excel-file) and sent as-is. All parsing and validation happens server-side in
- * import.service.ts, so there's one source of truth for the format.
+ * Body of POST /admin/import/university(/preview): the workbook's two sheets ("University" and
+ * "Courses") as grids of cells, read in the browser (read-excel-file) and sent as-is. All parsing
+ * and validation happens server-side in import.service.ts, so there's one source of truth for the
+ * format.
  */
 const cellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
+const sheetSchema = z.array(z.array(cellSchema).max(60)).max(2000);
+
 export const universityImportSchema = z.object({
-  rows: z.array(z.array(cellSchema).max(60)).min(1).max(2000),
+  university: sheetSchema.min(1),
+  courses: sheetSchema.min(1),
 });
 export type UniversityImportInput = z.infer<typeof universityImportSchema>;
 export type Cell = z.infer<typeof cellSchema>;
+export type WorkbookSheets = { university: Cell[][]; courses: Cell[][] };
+export type SheetName = "University" | "Courses";
 
 export interface ImportIssue {
+  sheet: SheetName;
   /** 1-based spreadsheet row number. */
   row: number;
   column: string;

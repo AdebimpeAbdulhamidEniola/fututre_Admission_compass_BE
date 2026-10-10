@@ -39,15 +39,15 @@ adminRouter.use("/admin/import", requireAuth, requireAdmin);
 adminRouter.post(
   "/admin/import/university/preview",
   asyncHandler(async (req, res) => {
-    const { rows } = parseOrThrow(universityImportSchema, req.body);
-    res.status(200).json(await importService.previewImport(rows));
+    const sheets = parseOrThrow(universityImportSchema, req.body);
+    res.status(200).json(await importService.previewImport(sheets));
   }),
 );
 adminRouter.post(
   "/admin/import/university",
   asyncHandler(async (req, res) => {
-    const { rows } = parseOrThrow(universityImportSchema, req.body);
-    res.status(200).json(await importService.applyImport(req.user!.id, rows));
+    const sheets = parseOrThrow(universityImportSchema, req.body);
+    res.status(200).json(await importService.applyImport(req.user!.id, sheets));
   }),
 );
 

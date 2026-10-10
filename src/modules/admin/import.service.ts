@@ -1,9 +1,9 @@
 /**
  * Excel import of one university's rules (and, optionally, its course cut-offs).
  *
- * Sheet layout (one sheet):
- *   1. University block — column A = field name, column B = value (see UNIVERSITY_FIELDS).
- *   2. A header row whose first cell is "name", then one row per course (see COURSE_COLUMNS).
+ * Workbook layout (two sheets):
+ *   1. "University" — column A = field name, column B = value (see UNIVERSITY_FIELDS).
+ *   2. "Courses" — a header row starting "name | faculty", then one row per course (see COURSE_COLUMNS).
  *
  * previewImport() parses, validates and diffs against the database without writing anything;
  * applyImport() does the same and then writes everything in one transaction. Courses at the
@@ -166,8 +166,9 @@ function stable(value: unknown): string {
 
 class IssueCollector {
   issues: ImportIssue[] = [];
+  constructor(private readonly sheet: SheetName) {}
   add(row: number, column: string, message: string) {
-    this.issues.push({ row, column, message });
+    this.issues.push({ sheet: this.sheet, row, column, message });
   }
 }
 
@@ -210,7 +211,8 @@ function parseUniversity(
 
   for (let i = 0; i < headerIndex; i++) {
     const key = text(rows[i]?.[0]);
-    if (!key) continue;
+    // Skip blank rows and an optional "field | value | notes" heading row; column C is free text.
+    if (!key || key.toLowerCase() === "field") continue;
     const field = fieldByLower.get(key.toLowerCase());
     if (!field) {
       issues.add(i + 1, "A", `Unknown university field "${key}".`);
@@ -498,23 +500,25 @@ function parseCourses(rows: Cell[][], headerIndex: number, issues: IssueCollecto
   return courses;
 }
 
-function parseSheet(rows: Cell[][]) {
-  const issues = new IssueCollector();
-  const headerIndex = rows.findIndex(
+function parseWorkbook(sheets: WorkbookSheets) {
+  const universityIssues = new IssueCollector("University");
+  const courseIssues = new IssueCollector("Courses");
+  const university = parseUniversity(sheets.university, sheets.university.length, universityIssues);
+
+  const headerIndex = sheets.courses.findIndex(
     (r) => text(r?.[0]).toLowerCase() === "name" && text(r?.[1]).toLowerCase() === "faculty",
   );
+  let courses: ParsedCourse[] = [];
   if (headerIndex === -1) {
-    issues.add(
+    courseIssues.add(
       1,
       "A",
-      'Couldn\'t find the course table: add a header row starting with "name" and "faculty".',
+      'Couldn\'t find the header row: it should start with "name" and "faculty".',
     );
-    return { university: null, courses: [], issues: issues.issues };
+  } else {
+    courses = parseCourses(sheets.courses, headerIndex, courseIssues);
   }
-  const universityIssues = new IssueCollector();
-  const university = parseUniversity(rows, headerIndex, universityIssues);
-  const courses = parseCourses(rows, headerIndex, issues);
-  return { university, courses, issues: [...universityIssues.issues, ...issues.issues] };
+  return { university, courses, issues: [...universityIssues.issues, ...courseIssues.issues] };
 }
 
 // --- Diff against the database -----------------------------------------------------------------
@@ -593,8 +597,8 @@ function courseChanges(
   return diff(fields);
 }
 
-async function buildPreview(rows: Cell[][]) {
-  const { university, courses, issues } = parseSheet(rows);
+async function buildPreview(sheets: WorkbookSheets) {
+  const { university, courses, issues } = parseWorkbook(sheets);
   const empty: ImportPreview = {
     valid: false,
     errors: issues,
@@ -636,8 +640,8 @@ async function buildPreview(rows: Cell[][]) {
   return { preview, university, courses, existing };
 }
 
-export async function previewImport(rows: Cell[][]): Promise<ImportPreview> {
-  return (await buildPreview(rows)).preview;
+export async function previewImport(sheets: WorkbookSheets): Promise<ImportPreview> {
+  return (await buildPreview(sheets)).preview;
 }
 
 // --- Apply -------------------------------------------------------------------------------------
@@ -645,10 +649,12 @@ export async function previewImport(rows: Cell[][]): Promise<ImportPreview> {
 const jsonOrDbNull = (value: object | null) =>
   value === null ? Prisma.DbNull : (value as Prisma.InputJsonValue);
 
-export async function applyImport(actorId: string, rows: Cell[][]) {
-  const { preview, university, courses, existing } = await buildPreview(rows);
+export async function applyImport(actorId: string, sheets: WorkbookSheets) {
+  const { preview, university, courses, existing } = await buildPreview(sheets);
   if (!preview.valid || !university) {
-    throw badRequest(preview.errors.map((e) => `Row ${e.row}, column ${e.column}: ${e.message}`));
+    throw badRequest(
+      preview.errors.map((e) => `${e.sheet} sheet, row ${e.row}, column ${e.column}: ${e.message}`),
+    );
   }
   const existingByName = new Map((existing?.courses ?? []).map((c) => [c.name.toLowerCase(), c]));
 
