@@ -26,6 +26,47 @@ import type {
 
 const GRADES = ["A1", "B2", "B3", "C4", "C5", "C6", "D7", "E8", "F9"];
 
+/** Must match the state names candidates pick in the wizard (frontend NIGERIA_STATES). */
+const NIGERIAN_STATES = [
+  "Abia",
+  "Adamawa",
+  "Akwa Ibom",
+  "Anambra",
+  "Bauchi",
+  "Bayelsa",
+  "Benue",
+  "Borno",
+  "Cross River",
+  "Delta",
+  "Ebonyi",
+  "Edo",
+  "Ekiti",
+  "Enugu",
+  "Gombe",
+  "Imo",
+  "Jigawa",
+  "Kaduna",
+  "Kano",
+  "Katsina",
+  "Kebbi",
+  "Kogi",
+  "Kwara",
+  "Lagos",
+  "Nasarawa",
+  "Niger",
+  "Ogun",
+  "Ondo",
+  "Osun",
+  "Oyo",
+  "Plateau",
+  "Rivers",
+  "Sokoto",
+  "Taraba",
+  "Yobe",
+  "Zamfara",
+  "FCT (Abuja)",
+];
+
 type FieldKind = "text" | "number" | "list" | "gradePoints";
 const UNIVERSITY_FIELDS: Record<string, { kind: FieldKind; required: boolean }> = {
   code: { kind: "text", required: true },
@@ -196,6 +237,10 @@ function parseStateMap(raw: string, row: number, column: string, issues: IssueCo
       issues.add(row, column, `"${part}" should look like State=cut-off (0–100), e.g. Lagos=73.2.`);
       continue;
     }
+    if (!NIGERIAN_STATES.includes(state)) {
+      issues.add(row, column, `Unknown state "${state}". Use the names from the state dropdown.`);
+      continue;
+    }
     map[state] = n;
   }
   return map;
@@ -312,6 +357,22 @@ function parseUniversity(
       oLevelGradePoints[grade] = n;
     }
   }
+
+  // State names must match the wizard's list exactly, or catchment matching silently fails.
+  const checkStates = (field: string, states: string[]) => {
+    const unknown = states.filter((st) => !NIGERIAN_STATES.includes(st));
+    if (unknown.length > 0) {
+      issues.add(
+        rowOf(field),
+        "B",
+        `Unknown state name(s): ${unknown.join(", ")}. Use the names from the state dropdown.`,
+      );
+    }
+  };
+  if (raw.locationState?.value) checkStates("locationState", [raw.locationState.value]);
+  if (raw.catchmentStates?.value)
+    checkStates("catchmentStates", splitList(raw.catchmentStates.value));
+  if (raw.eldsStates?.value) checkStates("eldsStates", splitList(raw.eldsStates.value));
 
   if (issues.issues.length > 0) return null;
   return {
