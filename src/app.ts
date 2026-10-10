@@ -26,7 +26,8 @@ export function createApp() {
       credentials: true,
     }),
   );
-  app.use(express.json());
+  // Raised from the 100kb default so an Excel import of a few hundred course rows fits.
+  app.use(express.json({ limit: "2mb" }));
   app.use(
     pinoHttp({
       level: env.isProduction ? "info" : "debug",

@@ -15,7 +15,7 @@ import type {
   UniversityUpdateInput,
 } from "./admin.types.js";
 
-async function logAdminAction(actorId: string, action: string, entity: string, summary: string) {
+export async function logAdminAction(actorId: string, action: string, entity: string, summary: string) {
   await prisma.adminLogEntry.create({ data: { actorId, action, entity, summary } });
 }
 

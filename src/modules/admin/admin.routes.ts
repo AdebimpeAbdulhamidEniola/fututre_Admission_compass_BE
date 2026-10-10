@@ -6,6 +6,8 @@ import { badRequest } from "../../lib/errors.js";
 import { parseOrThrow } from "../../lib/validate.js";
 import { requireAdmin, requireAuth } from "../auth/auth.middleware.js";
 import * as adminService from "./admin.service.js";
+import * as importService from "./import.service.js";
+import { universityImportSchema } from "./import.schemas.js";
 import * as metricsService from "./metrics.service.js";
 import {
   catchmentRuleSchema,
@@ -30,6 +32,24 @@ adminRouter.use("/admin/catchment-rules", requireAuth, requireAdmin);
 adminRouter.use("/admin/metrics", requireAuth, requireAdmin);
 adminRouter.use("/admin/logs", requireAuth, requireAdmin);
 adminRouter.use("/admin/evaluation-events", requireAuth, requireAdmin);
+adminRouter.use("/admin/import", requireAuth, requireAdmin);
+
+// --- Excel import (one university's rules + optional course cut-offs) ---------------------------
+
+adminRouter.post(
+  "/admin/import/university/preview",
+  asyncHandler(async (req, res) => {
+    const { rows } = parseOrThrow(universityImportSchema, req.body);
+    res.status(200).json(await importService.previewImport(rows));
+  }),
+);
+adminRouter.post(
+  "/admin/import/university",
+  asyncHandler(async (req, res) => {
+    const { rows } = parseOrThrow(universityImportSchema, req.body);
+    res.status(200).json(await importService.applyImport(req.user!.id, rows));
+  }),
+);
 
 // --- Universities --------------------------------------------------------------------------
 
@@ -129,7 +149,9 @@ adminRouter.patch(
   "/admin/scoring-policies/:id",
   asyncHandler(async (req, res) => {
     const input = parseOrThrow(scoringPolicyUpdateSchema, req.body);
-    res.status(200).json(await adminService.updateScoringPolicy(req.user!.id, req.params.id, input));
+    res
+      .status(200)
+      .json(await adminService.updateScoringPolicy(req.user!.id, req.params.id, input));
   }),
 );
 adminRouter.delete(
@@ -156,7 +178,9 @@ adminRouter.patch(
   "/admin/catchment-rules/:id",
   asyncHandler(async (req, res) => {
     const input = parseOrThrow(catchmentRuleUpdateSchema, req.body);
-    res.status(200).json(await adminService.updateCatchmentRule(req.user!.id, req.params.id, input));
+    res
+      .status(200)
+      .json(await adminService.updateCatchmentRule(req.user!.id, req.params.id, input));
   }),
 );
 adminRouter.delete(
@@ -192,7 +216,9 @@ adminRouter.get(
   asyncHandler(async (req, res) => {
     const result = evaluationEventQuerySchema.safeParse(req.query);
     if (!result.success) {
-      throw badRequest(result.error.issues.map((i) => `${i.path.join(".") || "query"}: ${i.message}`));
+      throw badRequest(
+        result.error.issues.map((i) => `${i.path.join(".") || "query"}: ${i.message}`),
+      );
     }
     res.status(200).json(await metricsService.listEvaluationEvents(result.data));
   }),
